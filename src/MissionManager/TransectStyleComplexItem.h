@@ -110,6 +110,7 @@ public:
     double              minAMSLAltitude             (void) const final;
     double              maxAMSLAltitude             (void) const final;
 
+
     static constexpr const char* turnAroundDistanceName                = "TurnAroundDistance";
     static constexpr const char* turnAroundDistanceMultiRotorName      = "TurnAroundDistanceMultiRotor";
     static constexpr const char* cameraTriggerInTurnAroundName         = "CameraTriggerInTurnAround";
@@ -159,6 +160,7 @@ protected:
     QGeoCoordinate      _exitCoordinate;
     QGCMapPolygon       _surveyAreaPolygon;
 
+
     enum CoordType {
         CoordTypeInterior,              ///< Interior waypoint for flight path only (example: interior corridor point)
         CoordTypeInteriorHoverTrigger,  ///< Interior waypoint for hover and capture trigger
@@ -178,7 +180,7 @@ protected:
     QList<TerrainPathQuery::PathHeightInfo_t>   _rgPathHeightInfo;                              ///< Path height for each segment includes turn segments
     QList<QGeoCoordinate>                       _rgFlyThroughMissionItemCoords;
     QList<double>                               _rgFlyThroughMissionItemCoordsTerrainHeights;
-    QList<CoordInfo_t>                          _rgFlightPathCoordInfo;                         ///< Fully calculated flight path (including terrain if needed)
+    QList<CoordInfo_t>                          _rgFlightPathCoordInfo;                    ///< Full flight path coordinate info including turnarounds  
 
     bool            _ignoreRecalc =     false;
     double          _complexDistance =  qQNaN();
@@ -241,6 +243,8 @@ private:
     double  _altitudeBetweenCoords                                          (const QGeoCoordinate& fromCoord, const QGeoCoordinate& toCoord, double percentTowardsTo);
     int     _maxPathHeight                                                  (const TerrainPathQuery::PathHeightInfo_t& pathHeightInfo, int fromIndex, int toIndex, double& maxHeight);
     BuildMissionItemsState_t _buildMissionItemsState                        (void) const;
+    QmlObjectListModel* _geoFenceCircles  = nullptr;
+    QmlObjectListModel* _geoFencePolygons = nullptr;
 
     TerrainPolyPathQuery*       _currentTerrainPolyPathQuery        = nullptr;
     TerrainAtCoordinateQuery*   _currentTerrainAtCoordinateQuery    = nullptr;

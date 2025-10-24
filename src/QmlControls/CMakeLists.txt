@@ -79,7 +79,10 @@ qt_add_qml_module(QGroundControlControlsModule
     RESOURCE_PREFIX /qml
     QML_FILES
         AltModeDialog.qml
+        AgriculturalStyleComplexItemEditor.qml
         AppSettings.qml
+        AgriculturalStyleMapVisuals.qml
+        AgriculturalStyleComplexItemTabBar.qml
         APMSubMotorDisplay.qml
         AppLogging.qml
         AutotuneUI.qml
@@ -166,6 +169,9 @@ qt_add_qml_module(QGroundControlControlsModule
         SetupPage.qml
         SliderSwitch.qml
         SubMenuButton.qml
+        SurveyMapVisual.qml
+        SprayItemEditor.qml
+        SprayMapVisual.qml
         TimedProgressTracker.qml
         ToolIndicatorPage.qml
         ToolStrip.qml

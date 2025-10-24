@@ -1,0 +1,16 @@
+{
+  "fileType": "FactMetaData",
+  "name": "Agriculture",
+  "version": 1,
+  "QGC.MetaData.Facts": [
+    { "name": "LineSpacing", "type": "double", "default": 5.0, "units": "m", "min": 0.2, "max": 10, "decimalPlaces": 1, "shortDescription": "Distance between flight lines", "longDescription": "Controls spacing between adjacent parallel legs of the pattern." },
+    { "name": "GridAngle", "type": "double", "default": 0.0, "units": "deg", "min": 0, "max": 359, "decimalPlaces": 1, "shortDescription": "Pattern angle", "longDescription": "Sets rotation of generated lines relative to north." },
+    { "name": "EntryLocation", "type": "uint32", "default": 0, "enumStrings": "Top Left,Top Right,Bottom Left,Bottom Right", "enumValues": "0,1,2,3", "shortDescription": "Entry location", "longDescription": "Determines which corner of the polygon is used to start the mission." },
+    { "name": "SpeedMode", "type": "uint32", "default": 0, "enumStrings": "Auto,Fixed", "enumValues": "0,1", "shortDescription": "Speed mode", "longDescription": "Select Auto to let onboard script manage speed, or Fixed to use a constant user-set value." },
+    { "name": "FixedSpeed", "type": "double", "default": 5.0, "units": "m/s", "min": 0.1, "max": 30.0, "decimalPlaces": 1, "shortDescription": "Fixed airspeed", "longDescription": "Speed used when Speed Mode is set to Fixed." },
+    { "name": "TurnAroundDistanceMultiRotor", "type": "double", "default": 5.0, "units": "m", "min": 0, "max": 100, "decimalPlaces": 1, "shortDescription": "Turnaround distance", "longDescription": "Extra distance flown past the polygon edge before turning, for multirotors." },
+    { "name": "TerrainAdjustTolerance", "type": "double", "default": 2.0, "units": "m", "min": 0, "max": 10, "decimalPlaces": 1, "shortDescription": "Terrain tolerance (future)", "longDescription": "Allowed altitude error before re-climb when terrain following is enabled." },
+    { "name": "TerrainAdjustMaxClimbRate", "type": "double", "default": 2.0, "units": "m/s", "min": 0.1, "max": 10, "decimalPlaces": 1, "shortDescription": "Max climb rate (future)", "longDescription": "Maximum vertical climb speed for terrain following." },
+    { "name": "TerrainAdjustMaxDescentRate", "type": "double", "default": 2.0, "units": "m/s", "min": 0.1, "max": 10, "decimalPlaces": 1, "shortDescription": "Max descent rate (future)", "longDescription": "Maximum vertical descent speed for terrain following." }
+  ]
+}

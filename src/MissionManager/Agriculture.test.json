@@ -1,0 +1,104 @@
+{
+  "name": "AgricultureV3",
+  "shortDescription": "Settings for agricultural-style missions (base for Spray/Spreader)",
+  "longDescription": "Defines parameters for generating agricultural transects and speed control without camera logic.",
+  "fileType": "FactMetaData",
+  "version": 1,
+  "QGC.MetaData.Facts": [
+    {
+      "name": "LineSpacing",
+      "type": "double",
+      "default": 2.0,
+      "units": "m",
+      "min": 2,
+      "max": 5,
+      "decimalPlaces": 1,
+      "shortDescription": "Distance between flight lines",
+      "longDescription": "Controls spacing between adjacent parallel legs of the pattern."
+    },
+    {
+      "name": "GridAngle",
+      "type": "double",
+      "units": "deg",
+      "min": 0,
+      "max": 360.0,
+      "decimalPlaces": 1,
+      "default": 0,
+      "shortDescription": "Grid rotation angle",
+      "longDescription": "Angle of parallel transects relative to North. Adjusts the overall grid orientation."
+    },
+    {
+      "name": "EntryLocation",
+      "type": "uint32",
+      "default": 0,
+      "enumStrings": "Top Left,Top Right,Bottom Right,Bottom Left",
+      "enumValues": "0,1,2,3",
+      "shortDescription": "Entry corner",
+      "longDescription": "Determines which corner of the polygon is used to start the mission. Each press of the Rotate Entry button moves clockwise around the polygon: Top Left → Top Right → Bottom Right → Bottom Left → Top Left."
+    },
+    {
+      "name": "SpeedMode",
+      "type": "uint32",
+      "default": 0,
+      "enumStrings": "Auto,Fixed",
+      "enumValues": "0,1",
+      "shortDescription": "Speed mode",
+      "longDescription": "Select Auto to let the onboard control script manage speed, or Fixed to use a constant user-defined airspeed."
+    },
+    {
+      "name": "FixedSpeed",
+      "type": "double",
+      "default": 5.0,
+      "units": "m/s",
+      "min": 0.1,
+      "max": 12.0,
+      "decimalPlaces": 1,
+      "shortDescription": "Fixed airspeed",
+      "longDescription": "Speed used when Speed Mode is set to Fixed."
+    },
+    {
+      "name": "TurnAroundDistanceMultiRotor",
+      "type": "double",
+      "default": 1.0,
+      "units": "m",
+      "min": 0.0,
+      "max": 5,
+      "decimalPlaces": 1,
+      "shortDescription": "Turnaround distance",
+      "longDescription": "Extra distance flown beyond the polygon edge before turning, for multirotor aircraft."
+    },
+    {
+      "name": "TerrainAdjustTolerance",
+      "type": "double",
+      "default": 2.0,
+      "units": "m",
+      "min": 0.0,
+      "max": 10.0,
+      "decimalPlaces": 1,
+      "shortDescription": "Terrain tolerance (future)",
+      "longDescription": "Allowed altitude error before re-climb when terrain following is enabled."
+    },
+    {
+      "name": "TerrainAdjustMaxClimbRate",
+      "type": "double",
+      "default": 2.0,
+      "units": "m/s",
+      "min": 0.1,
+      "max": 10.0,
+      "decimalPlaces": 1,
+      "shortDescription": "Max climb rate (future)",
+      "longDescription": "Maximum vertical climb speed for terrain following."
+    },
+    {
+      "name": "TerrainAdjustMaxDescentRate",
+      "type": "double",
+      "default": 2.0,
+      "units": "m/s",
+      "min": 0.1,
+      "max": 10.0,
+      "decimalPlaces": 1,
+      "shortDescription": "Max descent rate (future)",
+      "longDescription": "Maximum vertical descent speed for terrain following."
+    }
+  ]
+}

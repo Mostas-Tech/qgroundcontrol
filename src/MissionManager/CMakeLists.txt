@@ -5,6 +5,8 @@
 
 target_sources(${CMAKE_PROJECT_NAME}
     PRIVATE
+        AgriculturalStyleComplexItem.cc
+        AgriculturalStyleComplexItem.h
         BlankPlanCreator.cc
         BlankPlanCreator.h
         CameraCalc.cc
@@ -19,6 +21,10 @@ target_sources(${CMAKE_PROJECT_NAME}
         CorridorScanComplexItem.h
         CorridorScanPlanCreator.cc
         CorridorScanPlanCreator.h
+        ChinesePostmanParallel.cc
+        ChinesePostmanParallel.h
+        Decomposition.cc
+        Decomposition.h
         FixedWingLandingComplexItem.cc
         FixedWingLandingComplexItem.h
         GeoFenceController.cc
@@ -70,10 +76,15 @@ target_sources(${CMAKE_PROJECT_NAME}
         SurveyComplexItem.h
         SurveyPlanCreator.cc
         SurveyPlanCreator.h
+        SprayComplexItem.cc
+        SprayComplexItem.h
+        SprayPlanCreator.cc
+        SprayPlanCreator.h
         TakeoffMissionItem.cc
         TakeoffMissionItem.h
         TransectStyleComplexItem.cc
         TransectStyleComplexItem.h
+        tsp_route.h
         VisualMissionItem.cc
         VisualMissionItem.h
         VTOLLandingComplexItem.cc

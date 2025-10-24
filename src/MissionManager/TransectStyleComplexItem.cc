@@ -20,6 +20,7 @@
 #include "KMLPlanDomDocument.h"
 #include "Vehicle.h"
 #include "QGCLoggingCategory.h"
+#include "GeoFenceController.h"
 
 #include <QtCore/QJsonArray>
 
@@ -39,6 +40,10 @@ TransectStyleComplexItem::TransectStyleComplexItem(PlanMasterController* masterC
 {
     _terrainPolyPathQueryTimer.setInterval(qgcApp()->runningUnitTests() ? 10 : _terrainQueryTimeoutMsecs);
     _terrainPolyPathQueryTimer.setSingleShot(true);
+
+    GeoFenceController* gfc = _masterController->geoFenceController();
+    _geoFenceCircles  = gfc ? gfc->circles()  : nullptr;
+    _geoFencePolygons = gfc ? gfc->polygons() : nullptr;
     connect(&_terrainPolyPathQueryTimer, &QTimer::timeout, this, &TransectStyleComplexItem::_reallyQueryTransectsPathHeightInfo);
 
     // The follow is used to compress multiple recalc calls in a row to into a single call.
@@ -391,6 +396,17 @@ void TransectStyleComplexItem::_rebuildTransects(void)
     _transects.clear();
     _rgPathHeightInfo.clear();
     _rgFlightPathCoordInfo.clear();
+
+    qWarning(TransectStyleComplexItemLog) << "TransectStyleComplexItem::_rebuildTransects - start";
+
+    if ((_geoFenceCircles  && _geoFenceCircles->count()  > 0) ||
+        (_geoFencePolygons && _geoFencePolygons->count() > 0)) {
+        qWarning(TransectStyleComplexItemLog)
+            << "TransectStyleComplexItem::_rebuildTransects - GeoFence present, skipping rebuild";
+        
+    }
+    
+
 
     _rebuildTransectsPhase1();
 

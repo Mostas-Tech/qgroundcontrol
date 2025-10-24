@@ -1,0 +1,68 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": { "major": 3, "minor": 26, "patch": 0 },
+
+  "configurePresets": [
+    {
+      "name": "win-msvc-qt6.10.0-debug",
+      "displayName": "Windows MSVC + Qt 6.10.0 (Debug)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/VS2022_Qt6.10.0-Debug",
+      "cacheVariables": {
+        "CMAKE_CONFIGURATION_TYPES": "Debug",
+        "CMAKE_PREFIX_PATH": "E:/Qtdesignstudio/6.10.0/msvc2022_64",
+        "Qt6_DIR": "E:/Qtdesignstudio/6.10.0/msvc2022_64/lib/cmake/Qt6",
+
+        "CMAKE_C_COMPILER_LAUNCHER": "sccache",
+        "CMAKE_CXX_COMPILER_LAUNCHER": "sccache",
+        "CMAKE_RC_COMPILER_LAUNCHER": "sccache",
+        "DQGC_ENABLE_PIE": "OFF",
+
+        "DQGC_QT_MINIMUM_VERSION": "6.10.0",
+        "DQGC_QT_MAXIMUM_VERSION": "6.10.0",
+        "DQGC_DEBUG_QML": "ON",
+        "DQT_QML_OUTPUT_DIRECTORY": "${sourceDir}/build/VS2022_Qt6.10.0-Debug/qml",
+        "DQML_IMPORT_PATH": "${sourceDir}/build/VS2022_Qt6.10.0-Debug/qml;${sourceDir}/custom/res",
+        "DQGC_ENABLE_BLUETOOTH": "ON",
+        "DQGC_ENABLE_GST_VIDEOSTREAMING": "ON",
+        "DQGC_ENABLE_UVC": "ON",
+        "DQGC_AIRLINK_DISABLED": "ON",
+        "DQGC_APP_NAME": "Mostas Ground Control",
+        "DQGC_APP_DESCRIPTION": "Mostas Tech Ground Control App",
+        "DQGC_ORG_NAME": "Mostas",
+        "DQGC_ORG_DOMAIN": "mostastech.com",
+        "DQGC_PACKAGE_NAME": "org.mavlink.qgroundcontrol",
+        "WINDEPLOYQT_EXECUTABLE": "E:/Qtdesignstudio/6.10.0/msvc2022_64/bin/windeployqt.exe",
+        "PATCH_EXECUTABLE": "C:/Program Files/Git/usr/bin/patch.exe",
+        "BASH_EXECUTABLE": "C:/Program Files/Git/bin/bash.exe",
+        "BUILD_TESTING": "OFF",
+        "DQGC_BUILD_TESTING": "OFF",
+        "CONVERT_WARNINGS_TO_ERRORS": "OFF",
+        "DQGC_WINDOWS_RESOURCE_FILE_PATH": "E:/Github/qgroundcontrol_original/deploy/windows/QGroundControl.rc"
+      }
+    },
+
+    {
+      "name": "win-msvc-qt6.10.0-release",
+      "displayName": "Windows MSVC + Qt 6.10.0 (Release)",
+      "inherits": "win-msvc-qt6.10.0-debug",
+      "binaryDir": "${sourceDir}/build/Win_MSVC_Qt6.10.0-Release",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "DQGC_DEBUG_QML": "OFF",
+        "DQT_QML_OUTPUT_DIRECTORY": "${sourceDir}/build/Win_MSVC_Qt6.10.0-Release/qml",
+        "DQML_IMPORT_PATH": "${sourceDir}/build/Win_MSVC_Qt6.10.0-Release/qml;${sourceDir}/custom/res"
+      }
+    }
+  ],
+
+  "buildPresets": [
+    { "name": "debug", "configurePreset": "win-msvc-qt6.10.0-debug" },
+    { "name": "release", "configurePreset": "win-msvc-qt6.10.0-release" }
+  ],
+
+  "testPresets": [
+    { "name": "ctest-debug", "configurePreset": "win-msvc-qt6.10.0-debug" },
+    { "name": "ctest-release", "configurePreset": "win-msvc-qt6.10.0-release" }
+  ]
+}

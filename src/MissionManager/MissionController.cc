@@ -15,6 +15,7 @@
 #include "QGCApplication.h"
 #include "SimpleMissionItem.h"
 #include "SurveyComplexItem.h"
+#include "SprayComplexItem.h"
 #include "FixedWingLandingComplexItem.h"
 #include "VTOLLandingComplexItem.h"
 #include "StructureScanComplexItem.h"
@@ -445,7 +446,11 @@ VisualMissionItem* MissionController::insertComplexMissionItem(QString itemName,
                 qobject_cast<SurveyComplexItem*>(newItem)->cameraCalc()->setDistanceMode(prevAltMode);
             }
         }
-    } else if (itemName == FixedWingLandingComplexItem::name) {
+    }else if (itemName == SprayComplexItem::name) {
+        newItem = new SprayComplexItem(_masterController, _flyView);
+        newItem->setCoordinate(mapCenterCoordinate);
+    }
+    else if (itemName == FixedWingLandingComplexItem::name) {
         newItem = new FixedWingLandingComplexItem(_masterController, _flyView);
     } else if (itemName == VTOLLandingComplexItem::name) {
         newItem = new VTOLLandingComplexItem(_masterController, _flyView);
@@ -547,7 +552,7 @@ void MissionController::removeVisualItem(int viIndex)
         return;
     }
 
-    bool removeSurveyStyle = _visualItems->value<SurveyComplexItem*>(viIndex) || _visualItems->value<CorridorScanComplexItem*>(viIndex);
+    bool removeSurveyStyle = _visualItems->value<SurveyComplexItem*>(viIndex) || _visualItems->value<CorridorScanComplexItem*>(viIndex) || _visualItems->value<SprayComplexItem*>(viIndex); ;
     VisualMissionItem* item = qobject_cast<VisualMissionItem*>(_visualItems->removeAt(viIndex));
 
     if (item == _takeoffMissionItem) {
@@ -2268,6 +2273,7 @@ QStringList MissionController::complexMissionItemNames(void) const
     complexItems.append(CorridorScanComplexItem::name);
     if (_controllerVehicle->multiRotor() || _controllerVehicle->vtol()) {
         complexItems.append(StructureScanComplexItem::name);
+        complexItems.append(SprayComplexItem::name);
     }
 
     // Note: The landing pattern items are not added here since they have there own button which adds them

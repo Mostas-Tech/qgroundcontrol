@@ -1,8 +1,8 @@
 #include "ChinesePostmanParallel.h"
 
-#include <algorithm>
-#include <limits>
-#include <cmath>
+#include <QRectF>
+#include <QDebug>
+#include <QtConcurrent/QtConcurrent>
 
 // -------- small math helpers --------
 QPointF ChinesePostmanParallel::makeUnit(const QPointF& v) {
@@ -88,6 +88,14 @@ bool ChinesePostmanParallel::prepare() {
 
     // Build endpoints
     classifySegmentsLR();
+
+    // Preprocess polygons -> edges + grid
+    preprocessPolygons();
+    buildGrid();
+
+    // Distance gate based on median seg length
+    computeDistanceGate();
+
     // Build costs (straight hops only, subject to fences)
     buildEndpointCostMatrix();
 
@@ -134,6 +142,14 @@ void ChinesePostmanParallel::classifySegmentsLR() {
     }
 }
 
+void ChinesePostmanParallel::computeDistanceGate() {
+    if (segLen.isEmpty()) { distanceGate = std::numeric_limits<double>::infinity(); return; }
+    QVector<double> tmp = segLen;
+    std::nth_element(tmp.begin(), tmp.begin() + tmp.size()/2, tmp.end());
+    const double med = tmp[tmp.size()/2];
+    distanceGate = 10.0 * med; // heuristic factor; tweak for density
+}
+
 void ChinesePostmanParallel::buildEndpointCostMatrix() {
     const qsizetype m = endpoints.size();
 
@@ -147,55 +163,198 @@ void ChinesePostmanParallel::buildEndpointCostMatrix() {
     epCost.resize(m * m, std::numeric_limits<double>::infinity());
     Q_ASSERT_X(epCost.size() == m * m, "buildEndpointCostMatrix", "resize failed");
 
-    for (int i = 0; i < m; ++i) {
-        for (int j = 0; j < m; ++j) {
+    // Parallel outer loop (independent writes to [i,j]) via QtConcurrent
+    QVector<qsizetype> idx; idx.reserve((int)m);
+    for (qsizetype i = 0; i < m; ++i) idx.push_back(i);
+
+    auto workFn = [&](qsizetype i){
+        const QPointF a = endpoints[i].p;
+        for (qsizetype j = 0; j < m; ++j) {
             if (i == j) continue;
-            const QPointF& a = endpoints[i].p;
-            const QPointF& b = endpoints[j].p;
+            const QPointF b = endpoints[j].p;
+
+            // Distance gate first (cheap)
+            if (distanceGate < std::numeric_limits<double>::infinity()) {
+                const double dx = a.x() - b.x();
+                const double dy = a.y() - b.y();
+                const double d2 = dx*dx + dy*dy;
+                if (d2 > distanceGate*distanceGate) continue;
+            }
+
             if (isStraightHopAllowed(a, b)) {
-                const double d = dist(a, b);
-                if (qIsFinite(d)) setEpCostAt(i, j, d);
+                const double d = std::hypot(a.x()-b.x(), a.y()-b.y());
+                if (qIsFinite(d)) setEpCostAt((int)i, (int)j, d);
             }
         }
-    }
+    };
+
+    QtConcurrent::blockingMap(idx, workFn);
 }
 
-// -------- feasibility checks --------
+// -------- feasibility checks (accelerated) --------
 bool ChinesePostmanParallel::isStraightHopAllowed(const QPointF& a, const QPointF& b) const {
     if (polys.isEmpty()) return true;
     if (dist(a, b) <= epsilon) return true;
-    return !segmentCrossesInteriorAnyPoly(a, b);
+    return !segmentCrossesInteriorAnyPolyFast(a, b);
 }
 
-bool ChinesePostmanParallel::segmentCrossesInteriorAnyPoly(const QPointF& a, const QPointF& b) const {
-    if (!finitePoint(a) || !finitePoint(b)) {
-        qWarning("NaN/Inf in segment endpoints");
-        return true; // treat as blocked
-    }
+// Build edges + world bbox
+void ChinesePostmanParallel::preprocessPolygons() {
+    edges.clear();
+    worldBB = QRectF();
 
-    const QLineF seg(a, b);
     for (int p = 0; p < polys.size(); ++p) {
         const QPolygonF& poly = polys[p];
         const int n = poly.size();
         if (n < 3) continue;
 
-        // If either endpoint is inside, the hop is invalid.
-        if (poly.containsPoint(a, Qt::OddEvenFill) || poly.containsPoint(b, Qt::OddEvenFill))
-            return true;
+        if (worldBB.isNull()) worldBB = poly.boundingRect();
+        else worldBB = worldBB.united(poly.boundingRect());
 
-        // Quick AABB reject
-        const QRectF bb(std::min(a.x(), b.x()), std::min(a.y(), b.y()),
-                        std::abs(a.x() - b.x()), std::abs(a.y() - b.y()));
-        if (!bb.intersects(poly.boundingRect()))
-            continue;
-
-        // Any bounded intersection with an edge -> crossing
         for (int i = 0; i < n; ++i) {
-            const QLineF edge(poly[i], poly[(i + 1) % n]);
-            QPointF ip;
-            if (seg.intersects(edge, &ip) == QLineF::BoundedIntersection)
-                return true;
+            const QPointF a = poly[i];
+            const QPointF b = poly[(i+1)%n];
+            QRectF bb(std::min(a.x(), b.x()), std::min(a.y(), b.y()),
+                      std::abs(a.x()-b.x()), std::abs(a.y()-b.y()));
+            edges.push_back({a.x(), a.y(), b.x(), b.y(), bb, p});
         }
+    }
+}
+
+// Uniform grid over edges (by edge bbox)
+void ChinesePostmanParallel::buildGrid(int targetCells) {
+    if (edges.isEmpty() || worldBB.isNull()) { grid = {}; return; }
+
+    // choose nearly square grid close to targetCells
+    int k = std::max(1, (int)std::sqrt(targetCells));
+    grid.nx = k; grid.ny = k;
+
+    grid.x0 = worldBB.left();
+    grid.y0 = worldBB.top();
+    grid.dx = worldBB.width() / grid.nx;
+    grid.dy = worldBB.height() / grid.ny;
+    if (grid.dx <= 0 || grid.dy <= 0) { grid = {}; return; }
+
+    grid.cells.clear();
+    grid.cells.resize(grid.nx * grid.ny);
+
+    auto clamp = [](int v, int lo, int hi){ return std::max(lo, std::min(hi, v)); };
+
+    for (int ei = 0; ei < edges.size(); ++ei) {
+        const QRectF& bb = edges[ei].bbox;
+        int ix0 = clamp((int)std::floor((bb.left() - grid.x0) / grid.dx), 0, grid.nx-1);
+        int iy0 = clamp((int)std::floor((bb.top()  - grid.y0) / grid.dy), 0, grid.ny-1);
+        int ix1 = clamp((int)std::floor((bb.right()- grid.x0) / grid.dx), 0, grid.nx-1);
+        int iy1 = clamp((int)std::floor((bb.bottom()-grid.y0) / grid.dy), 0, grid.ny-1);
+        for (int iy = iy0; iy <= iy1; ++iy) {
+            for (int ix = ix0; ix <= ix1; ++ix) {
+                grid.cells[iy*grid.nx + ix].push_back(ei);
+            }
+        }
+    }
+}
+
+bool ChinesePostmanParallel::bboxIntersect(const QRectF& a, const QRectF& b) {
+    return a.intersects(b);
+}
+
+void ChinesePostmanParallel::edgesInAABB(const QRectF& bb, QVector<int>& out) const {
+    out.clear();
+    if (!grid.valid()) {
+        // fallback: everything
+        out.reserve(edges.size());
+        for (int i = 0; i < edges.size(); ++i) out.push_back(i);
+        return;
+    }
+    auto clamp = [](int v, int lo, int hi){ return std::max(lo, std::min(hi, v)); };
+    int ix0 = clamp((int)std::floor((bb.left() - grid.x0) / grid.dx), 0, grid.nx-1);
+    int iy0 = clamp((int)std::floor((bb.top()  - grid.y0) / grid.dy), 0, grid.ny-1);
+    int ix1 = clamp((int)std::floor((bb.right()- grid.x0) / grid.dx), 0, grid.nx-1);
+    int iy1 = clamp((int)std::floor((bb.bottom()-grid.y0) / grid.dy), 0, grid.ny-1);
+
+    for (int iy = iy0; iy <= iy1; ++iy)
+        for (int ix = ix0; ix <= ix1; ++ix) {
+            const auto& cell = grid.cells[iy*grid.nx + ix];
+            out.reserve(out.size() + cell.size());
+            for (int v : cell) out.push_back(v);
+        }
+}
+
+// robust orientation test
+static inline int sgn(double x) { return (x > 0) - (x < 0); }
+
+bool ChinesePostmanParallel::segSegIntersect(double x1,double y1,double x2,double y2,
+                                             double x3,double y3,double x4,double y4) {
+    auto orient = [](double ax,double ay,double bx,double by,double cx,double cy){
+        return (bx-ax)*(cy-ay) - (by-ay)*(cx-ax);
+    };
+    double o1 = orient(x1,y1,x2,y2,x3,y3);
+    double o2 = orient(x1,y1,x2,y2,x4,y4);
+    double o3 = orient(x3,y3,x4,y4,x1,y1);
+    double o4 = orient(x3,y3,x4,y4,x2,y2);
+
+    if (sgn(o1)*sgn(o2) < 0 && sgn(o3)*sgn(o4) < 0) return true;
+
+    auto onSeg = [](double ax,double ay,double bx,double by,double px,double py){
+        return std::min(ax,bx) - 1e-12 <= px && px <= std::max(ax,bx) + 1e-12 &&
+               std::min(ay,by) - 1e-12 <= py && py <= std::max(ay,by) + 1e-12;
+    };
+    if (std::abs(o1) <= 1e-12 && onSeg(x1,y1,x2,y2,x3,y3)) return true;
+    if (std::abs(o2) <= 1e-12 && onSeg(x1,y1,x2,y2,x4,y4)) return true;
+    if (std::abs(o3) <= 1e-12 && onSeg(x3,y3,x4,y4,x1,y1)) return true;
+    if (std::abs(o4) <= 1e-12 && onSeg(x3,y3,x4,y4,x2,y2)) return true;
+    return false;
+}
+
+bool ChinesePostmanParallel::pointInPolyWindingFast(const QPointF& p, int polyId) const {
+    const QPolygonF& poly = polys[polyId];
+    const int n = poly.size();
+    if (n < 3) return false;
+
+    // Ray cast to +x, count crossings
+    int winding = 0;
+    double px = p.x(), py = p.y();
+    for (int i = 0; i < n; ++i) {
+        QPointF a = poly[i];
+        QPointF b = poly[(i+1)%n];
+        double ay = a.y(), by = b.y();
+        bool cond = (ay <= py && by > py) || (ay > py && by <= py);
+        if (!cond) continue;
+        double t = (py - ay) / (by - ay);
+        double ix = a.x() + t*(b.x()-a.x());
+        if (ix > px) winding += (by > ay) ? 1 : -1;
+    }
+    return winding != 0; // odd-even equivalent for simple polygons
+}
+
+bool ChinesePostmanParallel::segmentCrossesInteriorAnyPolyFast(const QPointF& a, const QPointF& b) const {
+    if (!finitePoint(a) || !finitePoint(b)) {
+        qWarning("NaN/Inf in segment endpoints");
+        return true; // treat as blocked
+    }
+    QRectF bb(std::min(a.x(), b.x()), std::min(a.y(), b.y()),
+              std::abs(a.x() - b.x()), std::abs(a.y() - b.y()));
+
+    // Endpoints inside any polygon? then invalid.
+    for (int p = 0; p < polys.size(); ++p) {
+        const QRectF pb = polys[p].boundingRect();
+        if (!pb.intersects(bb) && !pb.contains(a) && !pb.contains(b)) continue;
+        if (pointInPolyWindingFast(a, p) || pointInPolyWindingFast(b, p))
+            return true;
+    }
+
+    // Candidate edges from grid
+    QVector<int> cand;
+    edgesInAABB(bb, cand);
+
+    // Check intersections
+    const double x1 = a.x(), y1 = a.y();
+    const double x2 = b.x(), y2 = b.y();
+    for (int idx = 0; idx < cand.size(); ++idx) {
+        const Edge& e = edges[cand[idx]];
+        if (!bboxIntersect(bb, e.bbox)) continue;
+        if (segSegIntersect(x1,y1,x2,y2, e.x1,e.y1,e.x2,e.y2))
+            return true;
     }
     return false;
 }
@@ -344,6 +503,7 @@ double ChinesePostmanParallel::orientationRingDP(const QVector<int>& order,
     return totalSegLen + bestVal;
 }
 
+// 2-opt with band limit and cheap bound
 bool ChinesePostmanParallel::improveOrder2Opt(QVector<int>& order, int maxPasses) {
     const int N = order.size();
     if (N < 4) return false;
@@ -353,16 +513,38 @@ bool ChinesePostmanParallel::improveOrder2Opt(QVector<int>& order, int maxPasses
     double bestCost = orientationRingDP(order, &e0, &p0, &s0);
     if (!(bestCost < 1e99)) return false;
 
+    auto cheapBound = [&](int i, int j)->double {
+        // crude lower bound: change in geometric distances between segment midpoints
+        auto mid = [&](int s)->QPointF {
+            const QLineF& L = segs[s];
+            return QPointF(0.5*(L.x1()+L.x2()), 0.5*(L.y1()+L.y2()));
+        };
+        const QPointF A = mid(order[i]);
+        const QPointF B = mid(order[i+1]);
+        const QPointF C = mid(order[j]);
+        const QPointF D = mid(order[(j+1)%N]);
+        double oldLen = dist(A,B) + dist(C,D);
+        double newLen = dist(A,C) + dist(B,D);
+        return newLen - oldLen; // if not improving, skip DP
+    };
+
     for (int pass = 0; pass < maxPasses; ++pass) {
         bool improvedThisPass = false;
+
         for (int i = 0; i <= N - 4; ++i) {
-            for (int j = i + 2; j <= N - 1; ++j) {
+            int jmax = std::min(N - 1, i + 1 + twoOptBand);
+            for (int j = i + 2; j <= jmax; ++j) {
+                if (i == 0 && j == N - 1) continue; // no full reversal
+
+                // quick bound
+                if (cheapBound(i, j) >= -1e-9) continue;
+
                 QVector<int> cand = order;
                 std::reverse(cand.begin() + i + 1, cand.begin() + j + 1);
 
                 QVector<int> entry, parent; int startSide = 0;
                 const double candCost = orientationRingDP(cand, &entry, &parent, &startSide);
-                if (candCost < bestCost - 1e-9) {
+                if (candCost + 1e-9 < bestCost) {
                     order.swap(cand);
                     bestCost = candCost;
                     improvedAny = improvedThisPass = true;
@@ -421,7 +603,11 @@ QList<QPointF> ChinesePostmanParallel::buildRoute(const QVector<int>& order,
     }
 
     auto pushNoDup = [&](const QPointF& p) {
-        if (!path.isEmpty() && dist(path.back(), p) <= epsilon) return;
+        if (!path.isEmpty()) {
+            const QPointF& q = path.back();
+            const double dx = q.x()-p.x(), dy = q.y()-p.y();
+            if (dx*dx + dy*dy <= epsilon*epsilon) return;
+        }
         path.push_back(p);
     };
 

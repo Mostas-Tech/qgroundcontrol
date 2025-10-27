@@ -57,6 +57,8 @@ target_sources(${CMAKE_PROJECT_NAME}
         PlanManager.h
         PlanMasterController.cc
         PlanMasterController.h
+        TransectPathGenerator.h
+        TransectPathGenerator.cc
         RallyPoint.cc
         RallyPointController.cc
         RallyPointController.h

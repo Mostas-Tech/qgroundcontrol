@@ -2,127 +2,154 @@
 
 #include <QList>
 #include <QVector>
-#include <QPointF>
-#include <QPolygonF>
 #include <QLineF>
+#include <QPointF>
 #include <QRectF>
-#include <QtGlobal>
-#include <limits>
-#include <cmath>
-#include <algorithm>
+#include <QHash>
+#include <QString>
 
+// A heuristic Chinese-Postman-style tour constructor over disjoint segments,
+// optionally respecting "fence" polygons that cannot be crossed.
+// See the .cpp for implementation details.
 class ChinesePostmanParallel {
 public:
-    // ---- public API (unchanged) ----
-    ChinesePostmanParallel(const QList<QLineF>& segments,
-                           const QList<QPolygonF>& fencePolys);
+    // --- Types ---
+    struct FencePolygon {
+        QVector<QPointF> verts;   // ordered loop (closed implicitly)
+        QVector<double>  prefix;  // cumulative edge lengths; size = verts.size()+1
+        double           perimeter = 0.0;
+        QRectF           bbox;
+    };
 
+    struct EndpointInfo {
+        QPointF p;        // endpoint position
+        int     segIdx;   // which segment this endpoint belongs to
+        int     endSide;  // 0 = left(A), 1 = right(B) in our L/R labeling
+        int     polyIdx;  // -1 if not on any polygon boundary, else index into polys
+        double  sPerim;   // arclength along polygon perimeter (valid if polyIdx>=0)
+    };
+
+public:
+    // --- Construction ---
+    ChinesePostmanParallel(const QList<QLineF>& segments, const QList<QLineF>& fences);
+
+    // Compute a closed tour polyline (list of vertices). Empty list on failure.
+    // Check wasLastFeasible()/lastError() for status.
     QList<QPointF> solve();
 
-    QString error() const { return errorMsg; }
-    bool feasible() const { return lastFeasible; }
+    // --- Status / configuration ---
+    bool wasLastFeasible() const { return lastFeasible; }
+    const QString& lastError() const { return errorMsg; }
 
-public: // tuning knobs
-    int deterministicPasses = 2;      // fewer passes for speed
-    double epsilon = 1e-9;            // geometric epsilon
-    int twoOptBand = 64;              // band limit for 2-opt (speed)
-
-private:
-    // --------- data ----------
-    QList<QLineF> segs;
-    QVector<QPolygonF> polys;
-
-    // axis
-    QPointF axisU{1,0}, axisV{0,1};
-
-    // segment meta
-    QVector<QPointF> segA, segB;  // left-to-right endpoints
-    QVector<double> segLen;
-
-    struct Endpoint {
-        QPointF p;
-        int seg;     // segment id
-        int side;    // 0 = A, 1 = B
-        int dummy1;
-        double dummy2;
-    };
-    QVector<Endpoint> endpoints;
-
-    // costs (flat m*m)
-    QVector<double> epCost;
-
-    // status
-    QString errorMsg;
-    bool lastFeasible = false;
+    // Tuning parameters
+    void setEpsilon(double eps) { epsilon = eps; }
+    void setMaxImproveRounds(int rounds) { maxImproveRounds = rounds; }
+    void setRandomSeed(quint32 seed) { hasSeed = true; rngSeed = seed; }
+    void clearRandomSeed() { hasSeed = false; }
 
 private:
-    // -------- small math helpers --------
-    static QPointF makeUnit(const QPointF& v);
-    static double  dot(const QPointF& a, const QPointF& b);
-    static QPointF sub(const QPointF& a, const QPointF& b);
-    static double  norm(const QPointF& a);
-    static double  dist(const QPointF& a, const QPointF& b);
-    static bool    finitePoint(const QPointF& p);
-
-    // -------- pipeline --------
+    // --------- Top-level steps ---------
     bool prepare();
+    bool buildPolygons();
+    bool stitchPolygons(QList<QLineF> lines, QVector<FencePolygon>& out);
     void classifySegmentsLR();
+    void precomputeBoundaryLocationsForEndpoints();
     void buildEndpointCostMatrix();
 
-    // feasibility
-    bool isStraightHopAllowed(const QPointF& a, const QPointF& b) const;
+    // --------- Geometry / predicates ---------
+    static double dot(const QPointF& a, const QPointF& b);
+    static double cross(const QPointF& a, const QPointF& b);
+    static QPointF sub(const QPointF& a, const QPointF& b);
+    static double norm(const QPointF& a);
+    static double dist(const QPointF& a, const QPointF& b);
+    static bool   almostEqual(double a, double b, double eps);
 
-    // ordering & DP
+    static bool pointOnSegment(const QPointF& p, const QPointF& a, const QPointF& b,
+                               double eps, double* tProj = nullptr);
+
+    // Winding-number based point-in-polygon (boundary counts as outside => 0)
+    static int pointInPolygonWinding(const QVector<QPointF>& poly, const QPointF& q, double eps);
+
+    // Segment/segment intersection (with param outputs)
+    static bool segSegIntersectParam(const QPointF& a, const QPointF& b,
+                                     const QPointF& c, const QPointF& d,
+                                     double& t, double& u, int& kind, double eps);
+
+    // Polygon boundary helpers
+    bool   locateOnPolygon(int polyIdx, const QPointF& p,
+                           double& sPerimOut, int& edgeIndexOut, double& tOnEdgeOut) const;
+
+    double boundaryArcLength(int polyIdx, double sA, double sB) const;
+
+    void   boundaryArcPoints(int polyIdx, double sA, double sB, bool forward,
+                             QVector<QPointF>& out) const;
+
+    QRectF polygonBBox(const QVector<QPointF>& poly) const;
+
+    // Fence crossing checks
+    bool isStraightHopAllowed(const QPointF& a, const QPointF& b) const;
+    bool segmentCrossesInteriorAnyPoly(const QPointF& a, const QPointF& b) const;
+
+    // --------- Ordering & DP ---------
+    double hopCostEndpoint(int si, int entrySideFrom, int sj, int entrySideTo) const;
+
     QVector<int> initialOrderGreedy();
     QVector<int> initialOrderSweep();
 
+    // Ring DP over fixed cyclic order. Returns total cost or INF on infeasible.
     double orientationRingDP(const QVector<int>& order,
                              QVector<int>* entrySideOut,
                              QVector<int>* parentSideOut,
                              int* bestStartSideOut) const;
 
-    bool improveOrder2Opt(QVector<int>& order, int maxPasses);
+    bool improveOrder2Opt(QVector<int>& order, int roundsLimit);
 
-    // helpers
-    inline qsizetype M() const { return endpoints.size(); }
-    int epIndex(int s, int side) const;
-    double epCostAt(int ei, int ej) const;
-    void setEpCostAt(int ei, int ej, double v);
-    double hopCostEndpoint(int si, int entrySideFrom, int sj, int entrySideTo) const;
-
-    // route build
+    // Route reconstruction
     QList<QPointF> buildRoute(const QVector<int>& order,
-                              const QVector<int>& entrySide, int startSide) const;
+                              const QVector<int>& entrySide,
+                              int startSide) const;
 
-    // -------- fast geometry & acceleration --------
-    struct Edge {
-        double x1, y1, x2, y2;
-        QRectF bbox;
-        int polyId;
-    };
-    QVector<Edge> edges;           // all polygon edges
-    QRectF worldBB;                // bbox of all polygons
+    // --------- Small helpers ---------
+    static QRectF rectFromTwoPoints(const QPointF& a, const QPointF& b);
+    static double lerp(double a, double b, double t);
 
-    // uniform grid
-    struct Grid {
-        int nx = 0, ny = 0;
-        double x0 = 0, y0 = 0, dx = 1, dy = 1;
-        QVector<QVector<int>> cells; // indices into edges
-        bool valid() const { return nx > 0 && ny > 0 && !cells.isEmpty(); }
-    } grid;
+    // Endpoint indexing (2 endpoints per segment)
+    static int epIndex(int segIdx, int side) { return segIdx * 2 + (side & 1); }
 
-    void preprocessPolygons();
-    void buildGrid(int targetCells = 16384); // ~128x128 default
-    void edgesInAABB(const QRectF& bb, QVector<int>& out) const;
+    // Access into dense endpoint cost matrix
+    double epCostAt(int i, int j) const { return epCost[i * endpoints.size() + j]; }
+    void   setEpCostAt(int i, int j, double v) { epCost[i * endpoints.size() + j] = v; }
 
-    // geometric tests
-    static bool bboxIntersect(const QRectF& a, const QRectF& b);
-    static bool segSegIntersect(double x1,double y1,double x2,double y2,
-                                double x3,double y3,double x4,double y4);
-    bool segmentCrossesInteriorAnyPolyFast(const QPointF& a, const QPointF& b) const;
-    bool pointInPolyWindingFast(const QPointF& p, int polyId) const;
+private:
+    // --------- Inputs ---------
+    QList<QLineF> segs;      // segments to visit
+    QList<QLineF> fencesIn;  // fence edges (intended to stitch into polygons)
 
-    // cheap pruning
-    double distanceGate = std::numeric_limits<double>::infinity(); // set from median seg length
-    void computeDistanceGate();
+    // --------- Derived / working data ---------
+    // Segment L/R labeling relative to axisU
+    QVector<QPointF> segA, segB;  // left (A) and right (B) endpoints
+    QVector<double>  segLen;
+
+    // Fence polygons
+    QVector<FencePolygon> polys;
+
+    // Endpoint list (2 per segment)
+    QVector<EndpointInfo> endpoints;
+
+    // Endpoint-to-endpoint hop cost matrix (size MxM, flattened row-major)
+    QVector<double> epCost;
+
+    // Axis for projecting/ordering
+    QPointF axisU {1, 0};
+    QPointF axisV {0, 1};
+
+    // --------- Parameters / state ---------
+    double  epsilon = 1e-6;
+    int     maxImproveRounds = 200;
+
+    bool    hasSeed = false;
+    quint32 rngSeed = 0;
+
+    bool    lastFeasible = false;
+    QString errorMsg;
 };

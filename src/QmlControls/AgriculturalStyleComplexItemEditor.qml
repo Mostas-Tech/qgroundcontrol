@@ -4,7 +4,6 @@ import QtQuick.Layouts
 import QtQuick.Dialogs
 
 import QGroundControl
-
 import QGroundControl.Controls
 import QGroundControl.FactControls
 
@@ -61,74 +60,78 @@ Rectangle {
                 visible:            geomHeader.checked
 
                 GridLayout {
+                    // ---- Shared layout tuning for this grid ----
+                    readonly property real labelColWidth: ScreenTools.defaultFontPixelWidth * 12
                     Layout.fillWidth:   true
                     columnSpacing:      _m
                     rowSpacing:         _m
                     columns:            2
 
                     // Angle (deg)
-                    QGCLabel { text: qsTr("Angle (deg)") }
+                    QGCLabel {
+                        text: qsTr("Angle (deg)")
+                        // Fix the label column so the field column gets all extra width
+                        Layout.minimumWidth: parent.labelColWidth
+                        Layout.maximumWidth: parent.labelColWidth
+                        elide: Text.ElideRight
+                    }
                     FactTextField {
                         fact:               missionItem.gridAngle
                         Layout.fillWidth:   true
+                        onUpdated:          angleSlider.value = missionItem.gridAngle.value
                     }
                     QGCSlider {
                         id:                     angleSlider
                         from:                   0
                         to:                     359
                         stepSize:               1
-                        live:                   false
+                        live:                   true
                         tickmarksEnabled:       false
                         Layout.fillWidth:       true
                         Layout.columnSpan:      2
                         Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
-
-                        // bind to Fact; no imperative set on startup
-                        value: missionItem.gridAngle.value
-
-                        // only write back on user interaction
-                        property bool initialized: false
-                        Component.onCompleted: initialized = true
-                        onValueChanged: {
-                            if (!initialized) return
-                            if (pressed || activeFocus) {
-                                missionItem.gridAngle.value = value
-                            }
-                        }
+                        // bind to Fact; initialize without writing back
+                        Component.onCompleted:  value = missionItem.gridAngle.value
+                        onValueChanged:         missionItem.gridAngle.value = value
                     }
 
                     // Spacing (m)
-                    QGCLabel { text: qsTr("Spacing (m)") }
+                    QGCLabel {
+                        text: qsTr("Spacing (m)")
+                        Layout.minimumWidth: parent.labelColWidth
+                        Layout.maximumWidth: parent.labelColWidth
+                        elide: Text.ElideRight
+                    }
                     FactTextField {
                         fact:               missionItem.lineSpacing
                         Layout.fillWidth:   true
                     }
                     QGCSlider {
-                        id: spacingSlider
-                        from: 2          // match metadata min
-                        to: 50.0
-                        stepSize: 0.1
-                        live: false
-                        tickmarksEnabled: false
-                        Layout.fillWidth: true
-                        Layout.columnSpan: 2
+                        id:                     spacingSlider
+                        from:                   2          // match metadata min
+                        to:                     50.0
+                        stepSize:               0.1
+                        live:                   false
+                        tickmarksEnabled:       false
+                        Layout.fillWidth:       true
+                        Layout.columnSpan:      2
                         Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
-
-                        value: missionItem.lineSpacing.value
-
+                        value:                  missionItem.lineSpacing.value
                         property bool initialized: false
-                        Component.onCompleted: initialized = true
+                        Component.onCompleted:  initialized = true
                         onValueChanged: {
                             if (!initialized) return
-                            if (pressed || activeFocus) {
-                                missionItem.lineSpacing.value = value
-                            }
-                            
+                            if (pressed || activeFocus) missionItem.lineSpacing.value = value
                         }
                     }
 
                     // Turnaround distance (m)
-                    QGCLabel { text: qsTr("Turnaround distance (m)") }
+                    QGCLabel {
+                        text: qsTr("Turnaround distance (m)")
+                        Layout.minimumWidth: parent.labelColWidth
+                        Layout.maximumWidth: parent.labelColWidth
+                        elide: Text.ElideRight
+                    }
                     FactTextField {
                         fact:               missionItem.turnAroundDistance
                         Layout.fillWidth:   true
@@ -143,19 +146,14 @@ Rectangle {
                         Layout.fillWidth:       true
                         Layout.columnSpan:      2
                         Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
-
-                        value: missionItem.turnAroundDistance.value
-
+                        value:                  missionItem.turnAroundDistance.value
                         property bool initialized: false
-                        Component.onCompleted: initialized = true
+                        Component.onCompleted:  initialized = true
                         onValueChanged: {
                             if (!initialized) return
-                            if (pressed || activeFocus) {
-                                missionItem.turnAroundDistance.value = value
-                            }
+                            if (pressed || activeFocus) missionItem.turnAroundDistance.value = value
                         }
                     }
-
 
                     QGCButton {
                         text: qsTr("Rotate Entry")
@@ -188,13 +186,19 @@ Rectangle {
                 visible:            speedHeader.checked
 
                 GridLayout {
+                    readonly property real labelColWidth: ScreenTools.defaultFontPixelWidth * 12
                     Layout.fillWidth:   true
                     columnSpacing:      _m
                     rowSpacing:         _m
                     columns:            2
 
                     // Speed mode (0 Auto, 1 Fixed)
-                    QGCLabel { text: qsTr("Manual speed") }
+                    QGCLabel {
+                        text: qsTr("Manual speed")
+                        Layout.minimumWidth: parent.labelColWidth
+                        Layout.maximumWidth: parent.labelColWidth
+                        elide: Text.ElideRight
+                    }
                     QGCCheckBox {
                         id:         manualSpeedCheck
                         checked:    missionItem.speedMode.value === 1
@@ -205,6 +209,9 @@ Rectangle {
                     QGCLabel {
                         text:    qsTr("Manual speed (m/s)")
                         enabled: manualSpeedCheck.checked
+                        Layout.minimumWidth: parent.labelColWidth
+                        Layout.maximumWidth: parent.labelColWidth
+                        elide: Text.ElideRight
                     }
                     FactTextField {
                         fact:       missionItem.fixedSpeed
@@ -222,16 +229,12 @@ Rectangle {
                         Layout.fillWidth:       true
                         Layout.columnSpan:      2
                         Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
-
-                        value: missionItem.fixedSpeed.value
-
+                        value:                  missionItem.fixedSpeed.value
                         property bool initialized: false
-                        Component.onCompleted: initialized = true
+                        Component.onCompleted:  initialized = true
                         onValueChanged: {
                             if (!initialized) return
-                            if (pressed || activeFocus) {
-                                missionItem.fixedSpeed.value = value
-                            }
+                            if (pressed || activeFocus) missionItem.fixedSpeed.value = value
                         }
                     }
                 }

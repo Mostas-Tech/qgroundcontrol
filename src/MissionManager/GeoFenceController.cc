@@ -416,8 +416,8 @@ void GeoFenceController::addInclusionPolygon(QGeoCoordinate topLeft, QGeoCoordin
     QGeoCoordinate center(centerLeftEdge.latitude(), centerTopEdge.longitude());
 
     // Initial polygon is inset to take 3/4s of viewport with max width/height of 3000 meters
-    halfWidthMeters =   qMin(halfWidthMeters * 0.75, 1500.0);
-    halfHeightMeters =  qMin(halfHeightMeters * 0.75, 1500.0);
+    halfWidthMeters =   qMin(halfWidthMeters * 0.15, 1500.0);
+    halfHeightMeters =  qMin(halfHeightMeters * 0.15, 1500.0);
 
     // Initial polygon has max width and height of 3000 meters
     topLeft =           center.atDistanceAndAzimuth(halfWidthMeters, -90).atDistanceAndAzimuth(halfHeightMeters, 0);
@@ -425,7 +425,7 @@ void GeoFenceController::addInclusionPolygon(QGeoCoordinate topLeft, QGeoCoordin
     bottomLeft =        center.atDistanceAndAzimuth(halfWidthMeters, -90).atDistanceAndAzimuth(halfHeightMeters, 180);
     bottomRight =       center.atDistanceAndAzimuth(halfWidthMeters, 90).atDistanceAndAzimuth(halfHeightMeters, 180);
 
-    QGCFencePolygon* polygon = new QGCFencePolygon(true /* inclusion */, this);
+    QGCFencePolygon* polygon = new QGCFencePolygon(false /* exclusion */, this);
     polygon->appendVertex(topLeft);
     polygon->appendVertex(topRight);
     polygon->appendVertex(bottomRight);
@@ -444,13 +444,13 @@ void GeoFenceController::addInclusionCircle(QGeoCoordinate topLeft, QGeoCoordina
     // Initial radius is inset to take 3/4s of viewport and max of 1500 meters
     double halfWidthMeters = topLeft.distanceTo(topRight) / 2.0;
     double halfHeightMeters = topLeft.distanceTo(bottomLeft) / 2.0;
-    double radius = qMin(qMin(halfWidthMeters, halfHeightMeters) * 0.75, 1500.0);
+    double radius = qMin(qMin(halfWidthMeters, halfHeightMeters) * 0.15, 1500.0);
 
     QGeoCoordinate centerLeftEdge = topLeft.atDistanceAndAzimuth(halfHeightMeters, 180);
     QGeoCoordinate centerTopEdge = topLeft.atDistanceAndAzimuth(halfWidthMeters, 90);
     QGeoCoordinate center(centerLeftEdge.latitude(), centerTopEdge.longitude());
 
-    QGCFenceCircle* circle = new QGCFenceCircle(center, radius, true /* inclusion */, this);
+    QGCFenceCircle* circle = new QGCFenceCircle(center, radius, false /* exclusion */, this);
     _circles.append(circle);
 
     clearAllInteractive();

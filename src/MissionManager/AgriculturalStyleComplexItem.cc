@@ -1,13 +1,10 @@
 #include "AgriculturalStyleComplexItem.h"
-
 #include <Decomposition.h>
-
 #include <QSettings>
 #include <QtCore/QJsonArray>
 #include <QtMath>
 #include <algorithm>
 #include <limits>
-
 #include "GeoFenceController.h"
 #include "JsonHelper.h"
 #include "MissionController.h"
@@ -21,42 +18,24 @@
 #include "QmlObjectListModel.h"
 #include "Vehicle.h"
 #include "tsp_route.h"
+#include "ChinesePostmanParallel.h"
 
 QGC_LOGGING_CATEGORY(AgriculturalStyleComplexItemLog, "AgriStyleComplexItemLog");
+
 QPointF geoToNedXY(const QGeoCoordinate& geo, const QGeoCoordinate& ref) {
     double x = 0, y = 0, z = 0;
     // QGC uses (north, east, down). Map to (x=east, y=north)
-    QGCGeo::convertGeoToNed(geo, ref, y, x, z);  // <-- NO & on args
+    QGCGeo::convertGeoToNed(geo, ref, y, x, z); // <-- NO & on args
     return QPointF(x, y);
 }
+
 QGeoCoordinate nedXYToGeo(const QPointF& nedXY, const QGeoCoordinate& ref) {
     QGeoCoordinate out;
-    QGCGeo::convertNedToGeo(nedXY.y(), nedXY.x(), 0.0, ref, out);  // <-- out by ref
+    QGCGeo::convertNedToGeo(nedXY.y(), nedXY.x(), 50, ref, out); // <-- out by ref
     return out;
 }
-inline QList<QList<QLineF>> mapLinesToPolygons(const QList<QPolygonF>& fieldPolygons, const QList<QLineF>& lines)
-{
-    QList<QList<QLineF>> result;
-    result.reserve(fieldPolygons.size());
 
-    for (const QPolygonF& polygon : fieldPolygons) {
-        QList<QLineF> includedLines;
-
-        for (const QLineF& line : lines) {
-            // Check if both endpoints are inside the polygon
-            if (polygon.containsPoint(line.p1(), Qt::OddEvenFill) &&
-                polygon.containsPoint(line.p2(), Qt::OddEvenFill)) {
-                includedLines.append(line);
-            }
-        }
-
-        result.append(includedLines);
-    }
-
-    return result;
-}
-QList<QLineF> clipLinesWithPolygon(const QList<QLineF>& lines, const QPolygonF& poly)
-{
+QList<QLineF> clipLinesWithPolygon(const QList<QLineF>& lines, const QPolygonF& poly) {
     QList<QLineF> out;
     if (poly.size() < 3) return out;
 
@@ -64,19 +43,18 @@ QList<QLineF> clipLinesWithPolygon(const QList<QLineF>& lines, const QPolygonF& 
 
     // local lambdas (still one function)
     auto nearlyEqual = [&](qreal a, qreal b){ return qAbs(a - b) <= eps; };
-    auto paramAlong  = [&](const QPointF& A, const QPointF& B, const QPointF& P){
+    auto paramAlong = [&](const QPointF& A, const QPointF& B, const QPointF& P){
         const qreal dx = B.x() - A.x(), dy = B.y() - A.y();
         const qreal len2 = dx*dx + dy*dy;
         if (len2 <= eps) return 0.0;
         return ((P.x() - A.x())*dx + (P.y() - A.y())*dy) / len2;
     };
-    auto pushUnique  = [&](QVector<qreal>& v, qreal t){
+    auto pushUnique = [&](QVector<qreal>& v, qreal t){
         for (qreal u : v) if (nearlyEqual(u, t)) return;
         v.push_back(t);
     };
 
     const int n = poly.size();
-
     for (const QLineF& seg : lines) {
         if (seg.length() <= eps) continue;
 
@@ -114,19 +92,17 @@ QList<QLineF> clipLinesWithPolygon(const QList<QLineF>& lines, const QPolygonF& 
         for (int i = 0; i + 1 < uniq.size(); ++i) {
             const qreal ta = uniq[i], tb = uniq[i + 1];
             if (tb - ta <= eps) continue;
-
             const QPointF A = seg.pointAt(ta);
             const QPointF B = seg.pointAt(tb);
             const QPointF M((A.x() + B.x()) * 0.5, (A.y() + B.y()) * 0.5);
-
             if (poly.containsPoint(M, Qt::OddEvenFill)) {
                 out.append(QLineF(A, B));
             }
         }
     }
-
     return out;
 }
+
 static double polygonAreaAbs(const QPolygonF& poly) {
     if (poly.size() < 3) return 0.0;
     double a = 0.0;
@@ -136,9 +112,15 @@ static double polygonAreaAbs(const QPolygonF& poly) {
     return qAbs(a) * 0.5;
 }
 
+auto toGeoSafe = [&](const QPointF& p,const QGeoCoordinate& ref) {
+    if (!qIsFinite(p.x()) || !qIsFinite(p.y())) {
+        qWarning() << "Non-finite NED point to convert:" << p;
+        return QGeoCoordinate(); // invalid
+    }
+    return nedXYToGeo(p, ref);
+};
 
-QPolygonF nedSurveyArea_offsett(const QPolygonF& nedSurveyArea, double offset)
-{
+QPolygonF nedSurveyArea_offsett(const QPolygonF& nedSurveyArea, double offset) {
     if (nedSurveyArea.size() < 3 || qFuzzyIsNull(offset)) {
         return nedSurveyArea;
     }
@@ -146,8 +128,7 @@ QPolygonF nedSurveyArea_offsett(const QPolygonF& nedSurveyArea, double offset)
     // Build the base path
     QPainterPath path;
     path.moveTo(nedSurveyArea.first());
-    for (int i = 1; i < nedSurveyArea.size(); ++i)
-        path.lineTo(nedSurveyArea[i]);
+    for (int i = 1; i < nedSurveyArea.size(); ++i) path.lineTo(nedSurveyArea[i]);
     path.closeSubpath();
 
     QPainterPathStroker stroker;
@@ -180,89 +161,70 @@ QPolygonF nedSurveyArea_offsett(const QPolygonF& nedSurveyArea, double offset)
         }
     }
 
-    if (!best.isEmpty() && best.first() != best.last())
-        best << best.first();
-
+    if (!best.isEmpty() && best.first() != best.last()) best << best.first();
     return best;
 }
-static QList<QLineF> generateTransectsNED(const QRectF& bboxNED,
-                                          double spacing_m,
-                                          double angleDeg)
-{
-    QList<QLineF> out;
-    if (!bboxNED.isValid() || spacing_m <= 0.0) return out;
 
-    // Direction (u) and unit normal (n). Angle is from +East (x) CCW toward +North (y).
-    const double ang = qDegreesToRadians(std::fmod(std::fmod(angleDeg, 360.0) + 360.0, 360.0));
-    const QPointF u(std::cos(ang), std::sin(ang));   // along the transect
-    const QPointF n(-std::sin(ang), std::cos(ang));  // perpendicular (left of u), unit-length
+static QList<QLineF> generateTransectsNED(const QRectF& bboxNED, double spacing_m, double angleDeg, int startCorner) {
+    QList<QLineF> transects;
 
-    auto dot = [](const QPointF& a, const QPointF& b) { return a.x()*b.x() + a.y()*b.y(); };
+    // Sanity check
+    if (spacing_m <= 0.0) return transects;
+    if (startCorner < 0 || startCorner > 3) startCorner = 0;
 
-    // Project bbox corners on the normal to find sweep range.
-    const QPointF bl = bboxNED.bottomLeft();
-    const QPointF tl = bboxNED.topLeft();
-    const QPointF br = bboxNED.bottomRight();
-    const QPointF tr = bboxNED.topRight();
+    // Define bbox corners
+    QVector<QPointF> corners = {
+        bboxNED.topLeft(),    // 0
+        bboxNED.topRight(),   // 1
+        bboxNED.bottomRight(),// 2
+        bboxNED.bottomLeft()  // 3
+    };
 
-    double pmin = std::min(std::min(dot(bl,n), dot(tl,n)), std::min(dot(br,n), dot(tr,n)));
-    double pmax = std::max(std::max(dot(bl,n), dot(tl,n)), std::max(dot(br,n), dot(tr,n)));
+    QPointF startpoint = corners[startCorner];
 
-    // Center the index near the bbox center to keep k small.
-    const QPointF c = bboxNED.center();
-    const double cproj = dot(c, n);
+    // Compute direction and normal vectors
+    double angleRad = qDegreesToRadians(angleDeg);
+    QPointF dir(qCos(angleRad), qSin(angleRad));      // direction along transect
+    QPointF normal(-dir.y(), dir.x());                // perpendicular direction (for spacing)
 
-    const double kStartF = std::floor((pmin - cproj) / spacing_m);
-    const double kEndF   = std::ceil ((pmax - cproj) / spacing_m);
-
-    // Bbox edges for clipping.
-    const QLineF eL(bboxNED.bottomLeft(),  bboxNED.topLeft());
-    const QLineF eR(bboxNED.bottomRight(), bboxNED.topRight());
-    const QLineF eT(bboxNED.topLeft(),     bboxNED.topRight());
-    const QLineF eB(bboxNED.bottomLeft(),  bboxNED.bottomRight());
-
-    const double L = std::hypot(bboxNED.width(), bboxNED.height()) * 4.0; // long enough
-    const double eps = 1e-9;
-
-    for (qint64 k = static_cast<qint64>(kStartF); k <= static_cast<qint64>(kEndF); ++k) {
-        const QPointF a = c + n * (k * spacing_m);  // anchor point for this transect
-        const QLineF  longSeg(a - u * L, a + u * L);
-
-        // Intersect with bboxNED edges
-        QVector<QPointF> hits; hits.reserve(4);
-        auto hit = [&](const QLineF& edge) {
-            QPointF ip;
-            if (longSeg.intersects(edge, &ip) == QLineF::BoundedIntersection) hits.push_back(ip);
-        };
-        hit(eL); hit(eR); hit(eT); hit(eB);
-
-        if (hits.size() < 2) continue;
-
-        // Dedup corner double-hits
-        std::sort(hits.begin(), hits.end(), [](const QPointF& A, const QPointF& B) {
-            return (A.x() < B.x()) || (A.x() == B.x() && A.y() < B.y());
-        });
-        QVector<QPointF> uniq; uniq.reserve(hits.size());
-        for (const QPointF& p : hits) {
-            if (uniq.isEmpty() || std::hypot(p.x()-uniq.back().x(), p.y()-uniq.back().y()) > 1e-7)
-                uniq.push_back(p);
-        }
-        if (uniq.size() < 2) continue;
-
-        // Sort along direction u, then take extreme pair inside the rectangle
-        std::sort(uniq.begin(), uniq.end(), [&](const QPointF& A, const QPointF& B){
-            return dot(A,u) < dot(B,u);
-        });
-
-        const QLineF seg(uniq.front(), uniq.back());
-        if (seg.length() > eps) out.push_back(seg);
+    // Determine offset range (projections of bbox corners along normal)
+    double minOffset = std::numeric_limits<double>::max();
+    double maxOffset = -std::numeric_limits<double>::max();
+    for (const QPointF& c : corners) {
+        double proj = QPointF::dotProduct(c - startpoint, normal);
+        minOffset = qMin(minOffset, proj);
+        maxOffset = qMax(maxOffset, proj);
     }
 
-    return out;
+    // Generate transects: spacing/2 + line + spacing + line + ... + spacing/2
+    for (double offset = minOffset + spacing_m / 2.0; offset <= maxOffset - spacing_m / 2.0; offset += spacing_m) {
+        QPointF offsetPoint = startpoint + normal * offset;
+
+        // Long line along direction
+        QLineF line(offsetPoint - dir * 1e6, offsetPoint + dir * 1e6);
+
+        // Clip line to bbox (intersection with edges)
+        QList<QPointF> intersections;
+        QVector<QLineF> edges = {
+            QLineF(bboxNED.topLeft(), bboxNED.topRight()),
+            QLineF(bboxNED.topRight(), bboxNED.bottomRight()),
+            QLineF(bboxNED.bottomRight(), bboxNED.bottomLeft()),
+            QLineF(bboxNED.bottomLeft(), bboxNED.topLeft())
+        };
+        for (const QLineF& edge : edges) {
+            QPointF intersect;
+            if (line.intersects(edge, &intersect) == QLineF::BoundedIntersection)
+                intersections.append(intersect);
+        }
+
+        if (intersections.size() >= 2)
+            transects.append(QLineF(intersections[0], intersections[1]));
+    }
+    return transects;
 }
+
 static inline QPointF lerp(const QPointF& a, const QPointF& b, double t) {
-    return QPointF(a.x() + (b.x() - a.x()) * t,
-                   a.y() + (b.y() - a.y()) * t);
+    return QPointF(a.x() + (b.x() - a.x()) * t, a.y() + (b.y() - a.y()) * t);
 }
 
 static inline double paramAlong(const QLineF& line, const QPointF& p) {
@@ -285,157 +247,6 @@ static void pushUnique(QVector<double>& v, double t, double eps = 1e-9) {
         if (nearlyEqual(u, t, eps)) return;
     }
     v.push_back(t);
-}
-
-// Distance from point P to segment AB
-static double pointToSegmentDist(const QPointF& A, const QPointF& B, const QPointF& P) {
-    const double vx = B.x() - A.x(), vy = B.y() - A.y();
-    const double wx = P.x() - A.x(), wy = P.y() - A.y();
-    const double vv = vx*vx + vy*vy;
-    double t = vv > 0.0 ? (wx*vx + wy*vy) / vv : 0.0;
-    t = std::clamp(t, 0.0, 1.0);
-    const double dx = (A.x() + t*vx) - P.x();
-    const double dy = (A.y() + t*vy) - P.y();
-    return std::hypot(dx, dy);
-}
-
-// Inclusive "inside": true if inside by fill rule OR lying on an edge (<= eps)
-static bool pointInsidePolygonInclusive(const QPolygonF& poly,
-                                        const QPointF& p,
-                                        const double edgeEps)
-{
-    if (poly.containsPoint(p, Qt::OddEvenFill))
-        return true;
-
-    // Boundary check
-    const int n = poly.size();
-    for (int i = 0; i < n; ++i) {
-        const QPointF A = poly[i];
-        const QPointF B = poly[(i + 1) % n];
-        if (pointToSegmentDist(A, B, p) <= edgeEps) return true;
-    }
-    return false;
-}
-
-// Clip segments to a (hole-free) polygon, keeping boundary-overlapping parts.
-// - linesIn:   input segments (unchanged)
-// - poly:      clipping polygon (NED meters; may be concave; no holes)
-// Returns:     list of clipped segments fully inside or on the polygon.
-static QList<QLineF> clipLinesToPolygonInclusive(const QList<QLineF>& linesIn,
-                                                 const QPolygonF& poly)
-{
-    QList<QLineF> out;
-    if (poly.size() < 3 || linesIn.isEmpty())
-        return out;
-
-    const int n = poly.size();
-    QVector<QLineF> edges; edges.reserve(n);
-    for (int i = 0; i < n; ++i)
-        edges.push_back(QLineF(poly[i], poly[(i + 1) % n]));
-
-    // Tolerances
-    const double EPS_T   = 1e-9;   // parameter epsilon on [0,1]
-    const double EPS_LEN = 1e-8;   // drop degenerate pieces
-    const double EPS_PAR = 1e-12;  // parallelism test (slope/cross)
-    const double EDGE_EPS = 1e-6;  // boundary inclusion tolerance (meters)
-
-    auto dot = [](const QPointF& a, const QPointF& b){ return a.x()*b.x() + a.y()*b.y(); };
-    auto cross = [](const QPointF& a, const QPointF& b){ return a.x()*b.y() - a.y()*b.x(); };
-
-    for (const QLineF& L : linesIn) {
-        const QPointF A = L.p1();
-        const QPointF B = L.p2();
-        const QPointF dL(B.x() - A.x(), B.y() - A.y());
-
-        // Collect all t in [0,1] where L meets polygon boundary OR endpoints inside.
-        QVector<double> ts; ts.reserve(8);
-
-        // Always consider endpoints; we’ll filter intervals by midpoint inclusion.
-        ts.push_back(0.0);
-        ts.push_back(1.0);
-
-        for (const QLineF& E : edges) {
-            const QPointF C = E.p1();
-            const QPointF D = E.p2();
-            const QPointF dE(D.x() - C.x(), D.y() - C.y());
-
-            // Check for parallel / colinear overlap first
-            const double cr = cross(dL, dE);
-            if (std::fabs(cr) <= EPS_PAR) {
-                // Parallel: check if colinear (C is on L)
-                if (pointToSegmentDist(A, B, C) <= EDGE_EPS || pointToSegmentDist(A, B, D) <= EDGE_EPS) {
-                    // Project edge endpoints onto L to get t's
-                    const double ll = dot(dL, dL);
-                    if (ll > 0.0) {
-                        auto projT = [&](const QPointF& P){
-                            return std::clamp(dot(QPointF(P.x() - A.x(), P.y() - A.y()), dL) / ll, 0.0, 1.0);
-                        };
-                        double tC = projT(C);
-                        double tD = projT(D);
-                        if (tD < tC) std::swap(tC, tD);
-                        ts.push_back(tC);
-                        ts.push_back(tD);
-                    }
-                }
-                // If parallel but not colinear -> no intersection
-                continue;
-            }
-
-            // Non-parallel: compute intersection
-            QPointF ip;
-            if (QLineF(A, B).intersects(QLineF(C, D), &ip) == QLineF::BoundedIntersection) {
-                // Recover parameter t on L for ip
-                double t;
-                if (std::fabs(dL.x()) >= std::fabs(dL.y()))
-                    t = (std::fabs(dL.x()) > 0.0) ? (ip.x() - A.x()) / dL.x() : 0.0;
-                else
-                    t = (std::fabs(dL.y()) > 0.0) ? (ip.y() - A.y()) / dL.y() : 0.0;
-
-                if (t >= -EPS_T && t <= 1.0 + EPS_T)
-                    ts.push_back(std::clamp(t, 0.0, 1.0));
-            }
-        }
-
-        if (ts.size() < 2) continue;
-
-        // Sort & deduplicate t's (avoid double hits at vertices/corners)
-        std::sort(ts.begin(), ts.end());
-        QVector<double> uniq; uniq.reserve(ts.size());
-        for (double t : ts) {
-            if (uniq.isEmpty() || std::fabs(t - uniq.back()) > 1e-7) uniq.push_back(t);
-        }
-
-        // Build interior pieces: for each consecutive [t_i, t_{i+1}], test midpoint.
-        for (int i = 0; i + 1 < uniq.size(); ++i) {
-            const double t0 = uniq[i];
-            const double t1 = uniq[i + 1];
-            if (t1 - t0 <= EPS_T) continue;
-
-            const QPointF P0 = L.pointAt(t0);
-            const QPointF P1 = L.pointAt(t1);
-            const QPointF Pm = L.pointAt(0.5 * (t0 + t1));
-
-            // Inclusive test: inside OR on boundary -> keep
-            if (!pointInsidePolygonInclusive(poly, Pm, EDGE_EPS))
-                continue;
-
-            if (QLineF(P0, P1).length() > EPS_LEN)
-                out.push_back(QLineF(P0, P1));
-        }
-    }
-
-    return out;
-}
-
-static QPolygonF _toPolyF(const QGCMapPolygon& poly) {
-    QPolygonF p;
-    const QVariantList& pts = poly.path();
-    p.reserve(pts.size());
-    for (const QVariant& v : pts) {
-        const QGeoCoordinate c = v.value<QGeoCoordinate>();
-        p << QPointF(c.longitude(), c.latitude());  // NOTE: visual math only; mission uses QGeoCoordinate
-    }
-    return p;
 }
 
 QList<QLineF> subtractFence(const QList<QLineF>& lines, const QPolygonF& fence) {
@@ -492,6 +303,7 @@ QList<QLineF> subtractFence(const QList<QLineF>& lines, const QPolygonF& fence) 
 
         // Sort and de-dup
         std::sort(ts.begin(), ts.end(), [](double a, double b){ return a < b; });
+
         // Rebuild with strict uniqueness after sort to be safe
         QVector<double> cuts;
         cuts.reserve(ts.size());
@@ -504,7 +316,6 @@ QList<QLineF> subtractFence(const QList<QLineF>& lines, const QPolygonF& fence) 
         for (int i = 0; i + 1 < cuts.size(); ++i) {
             double t0 = cuts[i];
             double t1 = cuts[i + 1];
-
             // Ignore degenerate intervals
             if (t1 - t0 <= 1e-9) continue;
 
@@ -525,9 +336,153 @@ QList<QLineF> subtractFence(const QList<QLineF>& lines, const QPolygonF& fence) 
             }
         }
     }
-
     return result;
 }
+
+// Distance from point P to segment AB
+static double pointToSegmentDist(const QPointF& A, const QPointF& B, const QPointF& P) {
+    const double vx = B.x() - A.x(), vy = B.y() - A.y();
+    const double wx = P.x() - A.x(), wy = P.y() - A.y();
+    const double vv = vx*vx + vy*vy;
+    double t = vv > 0.0 ? (wx*vx + wy*vy) / vv : 0.0;
+    t = std::clamp(t, 0.0, 1.0);
+    const double dx = (A.x() + t*vx) - P.x();
+    const double dy = (A.y() + t*vy) - P.y();
+    return std::hypot(dx, dy);
+}
+
+// Inclusive "inside": true if inside by fill rule OR lying on an edge (<= eps)
+static bool pointInsidePolygonInclusive(const QPolygonF& poly, const QPointF& p, const double edgeEps) {
+    if (poly.containsPoint(p, Qt::OddEvenFill)) return true;
+
+    // Boundary check
+    const int n = poly.size();
+    for (int i = 0; i < n; ++i) {
+        const QPointF A = poly[i];
+        const QPointF B = poly[(i + 1) % n];
+        if (pointToSegmentDist(A, B, p) <= edgeEps) return true;
+    }
+    return false;
+}
+
+// Clip segments to a (hole-free) polygon, keeping boundary-overlapping parts.
+// - linesIn: input segments (unchanged)
+// - poly: clipping polygon (NED meters; may be concave; no holes)
+// Returns: list of clipped segments fully inside or on the polygon.
+static QList<QLineF> clipLinesToPolygonInclusive(const QList<QLineF>& linesIn, const QPolygonF& poly) {
+    QList<QLineF> out;
+    if (poly.size() < 3 || linesIn.isEmpty()) return out;
+
+    const int n = poly.size();
+    QVector<QLineF> edges;
+    edges.reserve(n);
+    for (int i = 0; i < n; ++i) edges.push_back(QLineF(poly[i], poly[(i + 1) % n]));
+
+    // Tolerances
+    const double EPS_T = 1e-9;   // parameter epsilon on [0,1]
+    const double EPS_LEN = 1e-8; // drop degenerate pieces
+    const double EPS_PAR = 1e-12;// parallelism test (slope/cross)
+    const double EDGE_EPS = 1e-6;// boundary inclusion tolerance (meters)
+
+    auto dot = [](const QPointF& a, const QPointF& b){ return a.x()*b.x() + a.y()*b.y(); };
+    auto cross = [](const QPointF& a, const QPointF& b){ return a.x()*b.y() - a.y()*b.x(); };
+
+    for (const QLineF& L : linesIn) {
+        const QPointF A = L.p1();
+        const QPointF B = L.p2();
+        const QPointF dL(B.x() - A.x(), B.y() - A.y());
+
+        // Collect all t in [0,1] where L meets polygon boundary OR endpoints inside.
+        QVector<double> ts;
+        ts.reserve(8);
+        // Always consider endpoints; we’ll filter intervals by midpoint inclusion.
+        ts.push_back(0.0);
+        ts.push_back(1.0);
+
+        for (const QLineF& E : edges) {
+            const QPointF C = E.p1();
+            const QPointF D = E.p2();
+            const QPointF dE(D.x() - C.x(), D.y() - C.y());
+
+            // Check for parallel / colinear overlap first
+            const double cr = cross(dL, dE);
+            if (std::fabs(cr) <= EPS_PAR) {
+                // Parallel: check if colinear (C is on L)
+                if (pointToSegmentDist(A, B, C) <= EDGE_EPS || pointToSegmentDist(A, B, D) <= EDGE_EPS) {
+                    // Project edge endpoints onto L to get t's
+                    const double ll = dot(dL, dL);
+                    if (ll > 0.0) {
+                        auto projT = [&](const QPointF& P){
+                            return std::clamp(dot(QPointF(P.x() - A.x(), P.y() - A.y()), dL) / ll, 0.0, 1.0);
+                        };
+                        double tC = projT(C);
+                        double tD = projT(D);
+                        if (tD < tC) std::swap(tC, tD);
+                        ts.push_back(tC);
+                        ts.push_back(tD);
+                    }
+                }
+                // If parallel but not colinear -> no intersection
+                continue;
+            }
+
+            // Non-parallel: compute intersection
+            QPointF ip;
+            if (QLineF(A, B).intersects(QLineF(C, D), &ip) == QLineF::BoundedIntersection) {
+                // Recover parameter t on L for ip
+                double t;
+                if (std::fabs(dL.x()) >= std::fabs(dL.y()))
+                    t = (std::fabs(dL.x()) > 0.0) ? (ip.x() - A.x()) / dL.x() : 0.0;
+                else
+                    t = (std::fabs(dL.y()) > 0.0) ? (ip.y() - A.y()) / dL.y() : 0.0;
+
+                if (t >= -EPS_T && t <= 1.0 + EPS_T)
+                    ts.push_back(std::clamp(t, 0.0, 1.0));
+            }
+        }
+
+        if (ts.size() < 2) continue;
+
+        // Sort & deduplicate t's (avoid double hits at vertices/corners)
+        std::sort(ts.begin(), ts.end());
+        QVector<double> uniq;
+        uniq.reserve(ts.size());
+        for (double t : ts) {
+            if (uniq.isEmpty() || std::fabs(t - uniq.back()) > 1e-7)
+                uniq.push_back(t);
+        }
+
+        // Build interior pieces: for each consecutive [t_i, t_{i+1}], test midpoint.
+        for (int i = 0; i + 1 < uniq.size(); ++i) {
+            const double t0 = uniq[i];
+            const double t1 = uniq[i + 1];
+            if (t1 - t0 <= EPS_T) continue;
+
+            const QPointF P0 = L.pointAt(t0);
+            const QPointF P1 = L.pointAt(t1);
+            const QPointF Pm = L.pointAt(0.5 * (t0 + t1));
+
+            // Inclusive test: inside OR on boundary -> keep
+            if (!pointInsidePolygonInclusive(poly, Pm, EDGE_EPS)) continue;
+            if (QLineF(P0, P1).length() > EPS_LEN)
+                out.push_back(QLineF(P0, P1));
+        }
+    }
+
+    return out;
+}
+
+static QPolygonF _toPolyF(const QGCMapPolygon& poly) {
+    QPolygonF p;
+    const QVariantList& pts = poly.path();
+    p.reserve(pts.size());
+    for (const QVariant& v : pts) {
+        const QGeoCoordinate c = v.value<QGeoCoordinate>();
+        p << QPointF(c.longitude(), c.latitude()); // NOTE: visual math only; mission uses QGeoCoordinate
+    }
+    return p;
+}
+
 AgriculturalStyleComplexItem::AgriculturalStyleComplexItem(PlanMasterController* masterController, bool flyView)
     : ComplexMissionItem(masterController, flyView),
       _metaDataMap(FactMetaData::createMapFromJsonFile(QStringLiteral(":/json/Agriculture.test.json"), this)),
@@ -540,16 +495,15 @@ AgriculturalStyleComplexItem::AgriculturalStyleComplexItem(PlanMasterController*
       _terrainAdjustToleranceFact(QString("Agricultural"), _metaDataMap[terrainAdjustToleranceName], this),
       _terrainAdjustMaxClimbRateFact(QString("Agricultural"), _metaDataMap[terrainAdjustMaxClimbRateName], this),
       _terrainAdjustMaxDescentRateFact(QString("Agricultural"), _metaDataMap[terrainAdjustMaxDescentRateName], this)
-
 {
     GeoFenceController* gfc = _masterController->geoFenceController();
-    _geoFenceCircles  = gfc ? gfc->circles()  : nullptr;
+    _geoFenceCircles = gfc ? gfc->circles() : nullptr;
     _geoFencePolygons = gfc ? gfc->polygons() : nullptr;
 
     // Polygon change triggers recalc
     connect(&_surveyAreaPolygon, &QGCMapPolygon::pathChanged, this, &AgriculturalStyleComplexItem::_polyChanged);
-    connect(&_surveyAreaPolygon, &QGCMapPolygon::isValidChanged, this,
-            &AgriculturalStyleComplexItem::readyForSaveStateChanged);
+    connect(&_surveyAreaPolygon, &QGCMapPolygon::isValidChanged, this, &AgriculturalStyleComplexItem::readyForSaveStateChanged);
+
     // Fact changes that affect geometry
     connect(&_lineSpacingFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
     connect(&_gridAngleFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
@@ -557,8 +511,10 @@ AgriculturalStyleComplexItem::AgriculturalStyleComplexItem(PlanMasterController*
     connect(&_turnAroundDistanceFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
     connect(&_surveyAreaPolygon, &QGCMapPolygon::pathChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
     connect(&_surveyAreaPolygon, &QGCMapPolygon::pathChanged, this, &AgriculturalStyleComplexItem::_polyChanged);
+
     setDirty(false);
 }
+
 QLineF AgriculturalStyleComplexItem::_generateMidLine(const QGeoCoordinate& center, double angleDeg) const {
     // Create a long center line passing through 'center' at 'angleDeg' (in degrees).
     // Works in lon/lat space (QPointF: x=lon, y=lat). This is a simple approximation and
@@ -573,7 +529,6 @@ QLineF AgriculturalStyleComplexItem::_generateMidLine(const QGeoCoordinate& cent
     QPointF dir(cs, sn);
     QPointF p1(center.longitude() - dir.x() * extentDeg, center.latitude() - dir.y() * extentDeg);
     QPointF p2(center.longitude() + dir.x() * extentDeg, center.latitude() + dir.y() * extentDeg);
-
     return QLineF(p1, p2);
 }
 
@@ -596,25 +551,26 @@ void AgriculturalStyleComplexItem::setDirty(bool dirty) {
 }
 
 // Build a simple WP at coordinate with altitude from vehicle default (no terrain mode yet)
-void AgriculturalStyleComplexItem::_appendWaypoint(QList<MissionItem*>& items, QObject* missionItemParent, int& seqNum,
-                                                   MAV_FRAME mavFrame, float holdTime,
-                                                   const QGeoCoordinate& coordinate) {
+void AgriculturalStyleComplexItem::_appendWaypoint(QList<MissionItem*>& items, QObject* missionItemParent, int& seqNum, MAV_FRAME mavFrame, float holdTime, const QGeoCoordinate& coordinate) {
     double altitude = 5.0;
-
-    MissionItem* item = new MissionItem(seqNum++, MAV_CMD_NAV_WAYPOINT, mavFrame, holdTime,
-                                        0.0,                                       // acceptance radius
-                                        0.0,                                       // pass through
-                                        std::numeric_limits<double>::quiet_NaN(),  // yaw
-                                        coordinate.latitude(), coordinate.longitude(), altitude,
-                                        true,   // autoContinue
-                                        false,  // isCurrentItem
+    MissionItem* item = new MissionItem(seqNum++,
+                                        MAV_CMD_NAV_WAYPOINT,
+                                        mavFrame,
+                                        holdTime,
+                                        0.0, // acceptance radius
+                                        0.0, // pass through
+                                        std::numeric_limits<double>::quiet_NaN(), // yaw
+                                        coordinate.latitude(),
+                                        coordinate.longitude(),
+                                        altitude,
+                                        true,  // autoContinue
+                                        false, // isCurrentItem
                                         missionItemParent);
     items.append(item);
 }
 
 // Generate parallel centerlines (world space in lon/lat for now); caller clips
-QList<QLineF> AgriculturalStyleComplexItem::_generateParallelLines(const QPolygonF& area, double spacingMeters,
-                                                                   double angleDeg) const {
+QList<QLineF> AgriculturalStyleComplexItem::_generateParallelLines(const QPolygonF& area, double spacingMeters, double angleDeg) const {
     QList<QLineF> lines;
     if (area.size() < 3 || spacingMeters <= 0) {
         return lines;
@@ -624,32 +580,32 @@ QList<QLineF> AgriculturalStyleComplexItem::_generateParallelLines(const QPolygo
     // NOTE: For production we should use proper meters projection. This is a first pass.
     const double rad = qDegreesToRadians(angleDeg);
     const double cs = qCos(rad), sn = qSin(rad);
-
     auto rot = [&](const QPointF& p) { return QPointF(cs * p.x() - sn * p.y(), sn * p.x() + cs * p.y()); };
     auto irot = [&](const QPointF& p) { return QPointF(cs * p.x() + sn * p.y(), -sn * p.x() + cs * p.y()); };
 
     QPolygonF r;
     r.reserve(area.size());
     for (const QPointF& p : area) r << rot(p);
-
     QRectF rb = r.boundingRect();
 
     // Create parallel lines across bbox, step by spacing
     // We fake meters by treating lon/lat as planar small deltas (OK for small fields). TODO: replace with Geo
     // projection.
-    const double step = spacingMeters * 1.0e-5;  // rough scale placeholder; to be replaced with proper geo scale
-
+    const double step = spacingMeters * 1.0e-5; // rough scale placeholder; to be replaced with proper geo scale
     for (double y = rb.top(); y <= rb.bottom(); y += step) {
         QPointF a = irot(QPointF(rb.left(), y));
         QPointF b = irot(QPointF(rb.right(), y));
         lines << QLineF(a, b);
     }
+
     return lines;
 }
 
-// Clip line list to polygon -> produce legs as sequences of entry->exit CoordInfo_t (no zigzag ordering here)
+// Clip line list to polygon -> produce legs as sequences of entry->exit
+// CoordInfo_t (no zigzag ordering here)
 QList<QList<AgriculturalStyleComplexItem::CoordInfo_t>> AgriculturalStyleComplexItem::_clipLinesToPolygon(
-    const QList<QLineF>& lines, const QPolygonF& area) const {
+    const QList<QLineF>& lines, const QPolygonF& area) const
+{
     QList<QList<CoordInfo_t>> legs;
     if (area.size() < 3) return legs;
 
@@ -662,10 +618,13 @@ QList<QList<AgriculturalStyleComplexItem::CoordInfo_t>> AgriculturalStyleComplex
                 intersections << ip;
             }
         }
+
         if (intersections.size() < 2) continue;
+
         std::sort(intersections.begin(), intersections.end(), [&](const QPointF& a, const QPointF& b) {
             return a.x() < b.x() || (a.x() == b.x() && a.y() < b.y());
         });
+
         // pair them
         for (int i = 0; i + 1 < intersections.size(); i += 2) {
             QGeoCoordinate entry(intersections[i].y(), intersections[i].x());
@@ -673,12 +632,14 @@ QList<QList<AgriculturalStyleComplexItem::CoordInfo_t>> AgriculturalStyleComplex
 
             // --- Fence rejection (exclusion polygons only) ---
             // Convert candidate leg to a QLineF in lon/lat space
-            QLineF legLine(QPointF(entry.longitude(), entry.latitude()), QPointF(exit.longitude(), exit.latitude()));
+            QLineF legLine(QPointF(entry.longitude(), entry.latitude()),
+                           QPointF(exit.longitude(), exit.latitude()));
 
             auto segmentBlockedByExclusion = [&](const QList<QGCFencePolygon*>& fences) -> bool {
                 for (const auto* fence : fences) {
                     if (!fence) continue;
-                    if (fence->inclusion()) {  // We only avoid *exclusion* zones
+                    if (fence->inclusion()) {
+                        // We only avoid *exclusion* zones
                         continue;
                     }
                     // Build polygon in lon/lat
@@ -689,22 +650,20 @@ QList<QList<AgriculturalStyleComplexItem::CoordInfo_t>> AgriculturalStyleComplex
                         const QGeoCoordinate c = v.value<QGeoCoordinate>();
                         fencePoly << QPointF(c.longitude(), c.latitude());
                     }
-
                     // Quick contain test (midpoint or endpoints inside)
                     const QPointF mid((legLine.p1().x() + legLine.p2().x()) * 0.5,
                                       (legLine.p1().y() + legLine.p2().y()) * 0.5);
                     if (fencePoly.containsPoint(mid, Qt::OddEvenFill) ||
                         fencePoly.containsPoint(legLine.p1(), Qt::OddEvenFill) ||
                         fencePoly.containsPoint(legLine.p2(), Qt::OddEvenFill)) {
-                        return true;  // blocked
+                        return true; // blocked
                     }
-
                     // Edge intersection test
                     for (int k = 0; k < fencePoly.size(); ++k) {
                         QLineF e(fencePoly[k], fencePoly[(k + 1) % fencePoly.size()]);
                         QPointF ip;
                         if (legLine.intersects(e, &ip) == QLineF::BoundedIntersection) {
-                            return true;  // blocked
+                            return true; // blocked
                         }
                     }
                 }
@@ -722,11 +681,13 @@ QList<QList<AgriculturalStyleComplexItem::CoordInfo_t>> AgriculturalStyleComplex
             legs << seg;
         }
     }
+
     return legs;
 }
 
 QList<QList<AgriculturalStyleComplexItem::CoordInfo_t>> AgriculturalStyleComplexItem::_orderLegsEntryFirst(
-    const QList<QList<CoordInfo_t>>& legs) const {
+    const QList<QList<CoordInfo_t>>& legs) const
+{
     QList<QList<CoordInfo_t>> out;
     if (legs.isEmpty()) return out;
 
@@ -740,6 +701,7 @@ QList<QList<AgriculturalStyleComplexItem::CoordInfo_t>> AgriculturalStyleComplex
         double yMid;
         double x0, x1;
     };
+
     QList<Wrap> tmp;
     tmp.reserve(legs.size());
     for (const auto& seg : legs) {
@@ -757,8 +719,9 @@ QList<QList<AgriculturalStyleComplexItem::CoordInfo_t>> AgriculturalStyleComplex
     const bool startLeft = (entry == EntryLocationTopLeft || entry == EntryLocationBottomLeft);
 
     // Top→bottom or bottom→top
-    std::sort(tmp.begin(), tmp.end(),
-              [&](const Wrap& a, const Wrap& b) { return startTop ? a.yMid > b.yMid : a.yMid < b.yMid; });
+    std::sort(tmp.begin(), tmp.end(), [&](const Wrap& a, const Wrap& b) {
+        return startTop ? a.yMid > b.yMid : a.yMid < b.yMid;
+    });
 
     bool wantLeftToRight = startLeft;
     for (auto& w : tmp) {
@@ -768,16 +731,23 @@ QList<QList<AgriculturalStyleComplexItem::CoordInfo_t>> AgriculturalStyleComplex
         out << seg;
         wantLeftToRight = !wantLeftToRight;
     }
+
     return out;
 }
 
-void AgriculturalStyleComplexItem::rotateEntryPoint(void) {
-    // Assuming you have: enum EntryLocation { EntryLocationTopLeft = 0, EntryLocationTopRight,
-    // EntryLocationBottomRight, EntryLocationBottomLeft }; And: int _entryLocation;  (or Fact _entryLocationFact)
+void AgriculturalStyleComplexItem::updatetransect(void) {
+    _rebuildTransects();
+    setDirty(true);
+}
 
-    int entry = _entryLocationFact.rawValue().toInt();  // read current
-    entry = (entry + 1) % 4;                            // rotate clockwise 0→1→2→3→0
-    _entryLocationFact.setRawValue(entry);              // update Fact
+void AgriculturalStyleComplexItem::rotateEntryPoint(void) {
+    // Assuming you have:
+    // enum EntryLocation { EntryLocationTopLeft = 0, EntryLocationTopRight,
+    //                      // EntryLocationBottomRight, EntryLocationBottomLeft };
+    // And: int _entryLocation; (or Fact _entryLocationFact)
+    int entry = _entryLocationFact.rawValue().toInt(); // read current
+    entry = (entry + 1) % 4; // rotate clockwise 0→1→2→3→0
+    _entryLocationFact.setRawValue(entry); // update Fact
 
     // Rebuild transects with new entry point
     _rebuildTransects();
@@ -798,12 +768,13 @@ void AgriculturalStyleComplexItem::_recalcComplexDistance() {
         emit complexDistanceChanged();
     }
 }
+
 QPolygonF AgriculturalStyleComplexItem::_surveyAreaToNed(const QGeoCoordinate& ref) const {
     QPolygonF ned;
     const QList<QGeoCoordinate> pts = _surveyAreaPolygon.coordinateList();
     ned.reserve(pts.size());
     for (const auto& c : pts) {
-        ned << geoToNedXY(c, ref);  // meters: x=East, y=North
+        ned << geoToNedXY(c, ref); // meters: x=East, y=North
     }
     return ned;
 }
@@ -815,18 +786,14 @@ QPolygonF AgriculturalStyleComplexItem::fencePolygonToNed(const QGCFencePolygon*
     ned.reserve(path.size());
     for (const QVariant& v : path) {
         const QGeoCoordinate c = v.value<QGeoCoordinate>();
-        ned << geoToNedXY(c, ref);  // meters
+        ned << geoToNedXY(c, ref); // meters
     }
     return ned;
 }
 
-void AgriculturalStyleComplexItem::updatetransect(void) {
-    _rebuildTransects();
-    setDirty(true);
-}
-
 void AgriculturalStyleComplexItem::_rebuildTransects() {
     if (_ignoreRecalc) return;
+
     _transects.clear();
     _visualTransectPoints.clear();
     _visualFieldTransectPairs.clear();
@@ -837,8 +804,11 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
         return;
     }
 
+    QGeoCoordinate plannedHome = _masterController->missionController()->takeoffCoordinate();
+
     if (_geoFenceCircles->isEmpty() && _geoFencePolygons->isEmpty()) {
         // No fences -> simple transect generation (same basic approach as TransectStyleComplexItem)
+
         const QPolygonF area = _toPolyF(_surveyAreaPolygon);
         const double spacingMeters = _lineSpacingFact.rawValue().toDouble();
         const double angleDeg = _gridAngleFact.rawValue().toDouble();
@@ -893,40 +863,45 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
         emit visualTransectPointsChanged();
         emit fieldPolygonsMapChanged();
         _recalcComplexDistance();
-
+        emit specifiesCoordinateChanged();
         emit lastSequenceNumberChanged(lastSequenceNumber());
         emit readyForSaveStateChanged();
-
-        setDirty(true);
-        return;
     } else {
         // Fences present -> obstacle-aware transect generation
+
         // Generate a Line with using angle and mid point of polygon
         _fieldPolygonsMap.clear();
         QGeoCoordinate midPoint = _surveyAreaPolygon.center();
+
         // Use midPoint and convert geo to local NED
         _refForNed = midPoint;
+
         const double angleDeg = _gridAngleFact.rawValue().toDouble();
         const double spacingMeters = _lineSpacingFact.rawValue().toDouble();
         QLineF midLine = _generateMidLine(midPoint, angleDeg);
+
         const double rad = qDegreesToRadians(angleDeg);
         const QPointF dirNED(qCos(rad), qSin(rad));
-        
+
         QPolygonF nedSurveyArea = _surveyAreaToNed(_refForNed);
-        nedSurveyArea = nedSurveyArea_offsett(nedSurveyArea,2);
-        nedSurveyArea.removeAt(nedSurveyArea.size()-1);
-        
         QRectF bbox = nedSurveyArea.boundingRect();
+
+        nedSurveyArea = nedSurveyArea_offsett(nedSurveyArea,2);
+
         QPainterPath surveyPainterPath;
         surveyPainterPath.addPolygon(nedSurveyArea);
-        QList<QLineF> lines = generateTransectsNED(bbox,spacingMeters,angleDeg);
+
+        QList<QLineF> lines = generateTransectsNED(bbox,spacingMeters,angleDeg,_startDirectionFact.rawValue().toInt());
         lines = clipLinesWithPolygon(lines,nedSurveyArea);
+
         QList<QPolygonF> fences;
         // Generate a data structure that contains NED circles with center and radius
         QList<geom::Fence> nedFences;
+
         for (int i = 0; i < _geoFenceCircles->count(); ++i) {
             auto* fenceCircle = _geoFenceCircles->value<QGCFenceCircle*>(i);
             if (!fenceCircle) continue;
+
             const QGeoCoordinate center = fenceCircle->center();
             const QPointF nedCenter = geoToNedXY(center, _refForNed);
             const double radiusMeters = fenceCircle->radius()->rawValue().toDouble();
@@ -934,225 +909,131 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
             geom::Fence fence(geom::Circle(nedCenter, radiusMeters));
             if (fence.isValid()) {
                 nedFences.append(fence);
+
                 QPainterPath circlePath;
                 circlePath.addEllipse(nedCenter, radiusMeters, radiusMeters);
                 surveyPainterPath = surveyPainterPath.subtracted(circlePath).simplified();
             }
         }
+
         for (int i = 0; i < _geoFencePolygons->count(); ++i) {
             auto* fp = _geoFencePolygons->value<QGCFencePolygon*>(i);
             if (!fp) continue;
 
             QPolygonF nedPoly = fencePolygonToNed(fp, _refForNed);
             QPolygonF nedPolybig = nedSurveyArea_offsett(nedPoly,-2);
+
             std::vector<QPointF> verts;
             verts.reserve(nedPoly.size());
-            for (const QPointF& p : nedPoly)
-                verts.push_back(p);
-
+            for (const QPointF& p : nedPoly) verts.push_back(p);
             geom::Fence f{geom::Polygon(std::move(verts))};
             if (f.isValid()) {
                 nedFences.append(f);
 
                 QPainterPath polyPath;
-                polyPath.addPolygon(nedPoly);
+                polyPath.addPolygon(nedPolybig);
                 surveyPainterPath = surveyPainterPath.subtracted(polyPath).simplified();
+
                 lines = subtractFence(lines,nedPolybig);
                 fences.append(nedPoly);
             }
         }
+
         // calculate tangent lines
         // --- Build tangent lines in NED for every fence ---
-        QPointF linePointNED(0.0, 0.0);  // because _refForNed = midPoint, the midPoint is origin in NED
-        QRectF bb = nedSurveyArea.boundingRect();
-        const double L = std::hypot(bb.width(), bb.height()) * 4.0;  // long segment length to cover area
+        QPointF linePointNED(0.0, 0.0); // because _refForNed = midPoint, the midPoint is origin in NED
 
-        auto scale = [](const QPointF& v, double s) { return QPointF(v.x() * s, v.y() * s); };
-
-        QList<QLineF> tangentLinesNED;  // store the two (per fence) long line segments (to be clipped later)
-
-        // If you want to keep only tangents that lie within the survey area, set this to true
-        const bool keepOnlyTangentsInsideSurvey = true;
-
-        // (Optional) quick helper to keep only anchors that are inside the survey polygon
-        auto anchorIsInsideSurvey = [&](const QPointF& a) -> bool {
-            return geom::GeometryEngine::pointInPolygon(a, nedSurveyArea, /*inclusive*/ true);
-        };
-
-        for (const geom::Fence& fence : nedFences) {
-            // Two parallel tangents (anchors) relative to the reference line
-            std::vector<QPointF> anchors;
-            if (fence.type() == geom::Fence::Type::Circle) {
-                anchors = geom::GeometryEngine::parallelTangentsToFence(fence.asCircle().center(), dirNED, fence);
-            } else {
-                anchors = geom::GeometryEngine::parallelTangentsToFence(linePointNED, dirNED, fence);
-            }
-            for (const QPointF& a : anchors) {
-                if (keepOnlyTangentsInsideSurvey && !anchorIsInsideSurvey(a)) {
-                    continue;  // drop tangents whose anchor is outside survey area
-                }
-                bool intersectsOtherFences = true;
-
-                // Build a long line through 'a' along dirNED (will be clipped to survey later)
-                // Use mutable endpoints (do not shadow) so adjustments from intersections are preserved
-                QPointF p0 = a - scale(dirNED, L);
-                QPointF p1 = a + scale(dirNED, L);
-                for (const geom::Fence& v : nedFences) {
-                    if (v == fence) continue;
-                    // check if the tangent line crosses another fence
-                    QLineF tangentLine(p0, p1);
-                    if (v.type() == geom::Fence::Type::Circle) {
-                        if (geom::GeometryEngine::pointInCircle(a, v.asCircle())) {
-                            intersectsOtherFences = false;  // tangent line inside circle cannot intersect
-                        }
-                    } else {
-                        if (geom::GeometryEngine::pointInPolygon(a, v.asPolygon().vertices(), /*inclusive*/ true)) {
-                            intersectsOtherFences = false;  // tangent line inside polygon cannot intersect
-                        }
-                    }
-                    std::optional<QPointF> ipt = geom::GeometryEngine::intersection(tangentLine, v, a);
-                    if (ipt) {
-                        // choose the closer endpoint and replace it with intersection point
-                        const double d0 = std::hypot(ipt->x() - p0.x(), ipt->y() - p0.y());
-                        const double d1 = std::hypot(ipt->x() - p1.x(), ipt->y() - p1.y());
-                        if (d0 < d1) {
-                            p0.setX(ipt->x());
-                            p0.setY(ipt->y());
-                        } else {
-                            p1.setX(ipt->x());
-                            p1.setY(ipt->y());
-                        }
-                    }
-                }
-                if (!intersectsOtherFences) continue;
-                tangentLinesNED << QLineF(p0, p1);
+        QList<QLineF> fencelines;
+        for (const QPolygonF &fence : fences) {
+            int n = fence.size();
+            for (int i = 0; i < n; ++i) {
+                QPointF p1 = fence[i];
+                QPointF p2 = fence[(i + 1) % n]; // connects last point to first (closed polygon)
+                fencelines.append(QLineF(p1, p2));
             }
         }
 
-        auto dot2 = [](const QPointF& a, const QPointF& b) { return a.x() * b.x() + a.y() * b.y(); };
+        ChinesePostmanParallel solver(lines, fencelines);
+        QList<QPointF> path = solver.solve();
+
+        if (path.size() < 2) {
+            qWarning() << "Route too short:" << path.size();
+            _visualTransectPoints.clear();
+            _transects.clear();
+            emit visualTransectPointsChanged();
+            emit readyForSaveStateChanged();
+            setDirty(true);
+            return;
+        }
+
+        qDebug() << "Resulting route (" << path.size() << " points ):";
+        double total = 0.0;
+        for (int i = 0; i < path.size(); ++i) {
+            if (i > 0) total += QLineF(path[i-1], path[i]).length();
+        }
+        qDebug() << "Approx. total route length:" << total;
 
         _visualTransectPoints.clear();
-        _visualFieldTransectPairs.clear();
-        QPainterPathStroker stroker;
-        stroker.setWidth(0.1);               // thickness
-        stroker.setCapStyle(Qt::SquareCap);  // or FlatCap / RoundCap
-        stroker.setJoinStyle(Qt::MiterJoin);
-        for (const QLineF& l : tangentLinesNED) {
-            // Collect intersections of the (long) tangent with the survey polygon
-            QList<QPointF> ips;
-            for (int i = 0; i < nedSurveyArea.size(); ++i) {
-                const QPointF& a = nedSurveyArea[i];
-                const QPointF& b = nedSurveyArea[(i + 1) % nedSurveyArea.size()];
-                QLineF edge(a, b);
-                QPointF ip;
-                if (l.intersects(edge, &ip) == QLineF::BoundedIntersection) {
-                    ips << ip;
-                }
-            }
+        _transects.clear();
 
-            // Also treat line endpoints that lie inside the survey polygon as intersections.
-            // This preserves segments that start/end inside the survey and terminate at a fence.
-            const QPointF ep0 = l.p1();
-            const QPointF ep1 = l.p2();
-            if (geom::GeometryEngine::pointInPolygon(ep0, nedSurveyArea, /*inclusive*/ true)) {
-                ips << ep0;
-            }
-            if (geom::GeometryEngine::pointInPolygon(ep1, nedSurveyArea, /*inclusive*/ true)) {
-                ips << ep1;
-            }
+        qDebug() << "clean" << total;
 
-            // Remove near-duplicate points produced by vertex-touching or endpoint repeats.
-            if (!ips.isEmpty()) {
-                std::sort(ips.begin(), ips.end(), [](const QPointF& A, const QPointF& B) {
-                    return A.x() < B.x() || (A.x() == B.x() && A.y() < B.y());
-                });
-                const double dupEps = 1e-6;
-                auto newEnd = std::unique(ips.begin(), ips.end(), [dupEps](const QPointF& a, const QPointF& b) {
-                    return std::hypot(a.x() - b.x(), a.y() - b.y()) < dupEps;
-                });
-                ips.erase(newEnd, ips.end());
-            }
-
-            if (ips.size() < 2) continue;
-
-            // Sort intersections along line direction (dirNED) using projection
-            std::sort(ips.begin(), ips.end(),
-                      [&](const QPointF& A, const QPointF& B) { return dot2(A, dirNED) < dot2(B, dirNED); });
-
-            // Pair up intersections into segments inside the polygon
-            for (int k = 0; k + 1 < ips.size(); k += 2) {
-                const QPointF p0NED = ips[k];
-                const QPointF p1NED = ips[k + 1];
-
-                // Convert back to geo for display (remember _refForNed is the origin)
-                const QGeoCoordinate c0 = nedXYToGeo(p0NED, _refForNed);
-                const QGeoCoordinate c1 = nedXYToGeo(p1NED, _refForNed);
-
-                QPainterPath seg;
-                seg.moveTo(p0NED);
-                seg.lineTo(p1NED);
-                QPainterPath thick = stroker.createStroke(seg);
-                surveyPainterPath = surveyPainterPath.subtracted(thick).simplified();
-            }
+        // 1) include ALL points
+        for (int i = 0; i < path.size()-1; ++i) {
+            _visualTransectPoints.append(QVariant::fromValue(toGeoSafe(path[i],_refForNed)));
         }
-        QList<QPolygonF> fieldPolygons;
-        QList<QPointF> polygonCenters;
-        QPolygonF surveyPolygons = surveyPainterPath.toFillPolygon();
-        QPointF firstPoint= surveyPolygons.first();
-        QPolygonF poly;
-        poly<<firstPoint;
-        for (int i = 1; i < surveyPolygons.size(); ++i) {
-            QPointF p = surveyPolygons.at(i);
-            if (p==firstPoint) {
-                fieldPolygons.append(poly);
-                polygonCenters.append(poly.boundingRect().center());
-                poly.clear();
-            } else {
-                poly<<p;
-            }
+        qDebug() << "visual points added" << total;
+
+        // 2) build legs so the UI knows where entry/exit are
+        for (int i = 0; i + 1 < path.size()-1; i += 2) {
+            QList<CoordInfo_t> leg;
+            CoordInfo_t a, b;
+            a.coord = toGeoSafe(path[i],_refForNed);
+            b.coord = toGeoSafe(path[i+1],_refForNed);
+            a.coordType = CoordTypeSurveyEntry;
+            b.coordType = CoordTypeSurveyExit;
+            leg << a << b;
+            _transects << leg;
         }
-        QList<QList<QLineF>> mappedlines =  mapLinesToPolygons(fieldPolygons,lines);
-            // Start from first point (index 0). Change startIndex if you prefer another start.
-        QList<QPointF> route = tsp::computeRoute(polygonCenters, /*startIndex=*/0);
+        qDebug() << "transects generated" << total;
 
-        QList<QList<QLineF>> routelines;
-        for (int r = 0; r < route.size() - 1; ++r) {
-            const QPointF& p = route[r];
-            int i = polygonCenters.indexOf(p);
-            if (i < 0 || i >= fieldPolygons.size()) continue; // safety check
-        }
+        _coordinate = _visualTransectPoints.isEmpty() ? QGeoCoordinate() : _visualTransectPoints.first().value<QGeoCoordinate>();
+        _exitCoordinate = _visualTransectPoints.isEmpty() ? QGeoCoordinate() : _visualTransectPoints.last().value<QGeoCoordinate>();
 
+        qDebug() << "coordinates update" << total;
 
-        for (const QList<QLineF> a : mappedlines){
-            for (const QLineF p: a){
-                QGeoCoordinate c = nedXYToGeo(p.p1(), _refForNed);
-                _visualTransectPoints.append(QVariant::fromValue(c));
-                c = nedXYToGeo(p.p2(), _refForNed);
-                _visualTransectPoints.append(QVariant::fromValue(c));
-            }
-        }
-        
-
-        _coordinate = _surveyAreaPolygon.center();
-        _exitCoordinate = _surveyAreaPolygon.center();
         emit coordinateChanged(_coordinate);
         emit exitCoordinateChanged(_exitCoordinate);
-
-        emit fieldPolygonsMapChanged();
-        emit visualFieldTransectPairsChanged();
         emit visualTransectPointsChanged();
-
-        _recalcComplexDistance();
-        emit lastSequenceNumberChanged(lastSequenceNumber());
         emit readyForSaveStateChanged();
-
-
-        setDirty(true);
-        return;
+        emit lastSequenceNumberChanged(lastSequenceNumber());
+        emit specifiesCoordinateChanged();
     }
+
+    _flightPathSegments.beginResetModel();
+    _flightPathSegments.clear();
+    QGeoCoordinate prev;
+    for (const QVariant& v : _visualTransectPoints) {
+        const QGeoCoordinate c = v.value<QGeoCoordinate>();
+        if (prev.isValid() && c.isValid()) {
+            _appendFlightPathSegment(FlightPathSegment::SegmentTypeGeneric,
+                                     prev, prev.altitude(),
+                                     c, c.altitude());
+        }
+        prev = c;
+    }
+    _flightPathSegments.endResetModel();
+
+    // 2) Tell controller to recompute the overall mission path
+    _masterController->missionController()->recalcTerrainProfile();
+
+    setDirty(true);
+    return;
 }
 
-void AgriculturalStyleComplexItem::_polyChanged() { _rebuildTransects(); }
+void AgriculturalStyleComplexItem::_polyChanged() {
+    _rebuildTransects();
+}
 
 int AgriculturalStyleComplexItem::lastSequenceNumber(void) const {
     int itemCount = 0;
@@ -1188,10 +1069,14 @@ void AgriculturalStyleComplexItem::_buildAndAppendMissionItems(QList<MissionItem
 
     // Optionally set speed when fixed. We keep it simple: one DO_CHANGE_SPEED at the beginning.
     if (_speedModeFact.rawValue().toInt() == SpeedModeFixed) {
-        MissionItem* speed =
-            new MissionItem(seqNum++, MAV_CMD_DO_CHANGE_SPEED, MAV_FRAME_MISSION,
-                            1,  // airspeed
-                            _fixedSpeedFact.rawValue().toDouble(), -1, 0, 0, 0, 0, true, false, missionItemParent);
+        MissionItem* speed = new MissionItem(seqNum++,
+                                             MAV_CMD_DO_CHANGE_SPEED,
+                                             MAV_FRAME_MISSION,
+                                             1, // airspeed
+                                             _fixedSpeedFact.rawValue().toDouble(),
+                                             -1, 0, 0, 0, 0,
+                                             true, false,
+                                             missionItemParent);
         items.append(speed);
     }
 
@@ -1236,8 +1121,10 @@ void AgriculturalStyleComplexItem::setCoordinate(const QGeoCoordinate& coordinat
     // For editing UX, move polygon center; rebuild
     _surveyAreaPolygon.setCenter(coordinate);
     emit _surveyAreaPolygon.pathChanged();
+
     _coordinate = coordinate;
     emit coordinateChanged(_coordinate);
+
     _rebuildTransects();
 }
 
@@ -1246,6 +1133,7 @@ void AgriculturalStyleComplexItem::applyNewAltitude(double newAltitude) {
     // Store on entry/exit so UI doesn’t crash if queried.
     if (_coordinate.isValid()) _coordinate.setAltitude(newAltitude);
     if (_exitCoordinate.isValid()) _exitCoordinate.setAltitude(newAltitude);
+
     emit coordinateChanged(_coordinate);
     emit exitCoordinateChanged(_exitCoordinate);
 }
@@ -1261,28 +1149,24 @@ double AgriculturalStyleComplexItem::maxAMSLAltitude(void) const {
 }
 
 // ---------------------------- Save/Load ----------------------------
-
 QVariantList AgriculturalStyleComplexItem::fieldPolygonsVariant() const {
     QVariantList v;
     v.reserve(_fieldPolygonsMap.size());
     for (auto* p : _fieldPolygonsMap) v << QVariant::fromValue(static_cast<QObject*>(p));
     return v;
 }
+
 void AgriculturalStyleComplexItem::save(QJsonArray& planItems) {
     QJsonObject complexObject;
-
     QJsonObject inner;
-    inner[JsonHelper::jsonVersionKey] = 1;
 
+    inner[JsonHelper::jsonVersionKey] = 1;
     inner[lineSpacingName] = _lineSpacingFact.rawValue().toDouble();
     inner[gridAngleName] = _gridAngleFact.rawValue().toDouble();
     inner[entryLocationName] = _entryLocationFact.rawValue().toInt();
-
     inner[speedModeName] = _speedModeFact.rawValue().toInt();
     inner[fixedSpeedName] = _fixedSpeedFact.rawValue().toDouble();
-
     inner[turnAroundDistanceName] = _turnAroundDistanceFact.rawValue().toDouble();
-
     // Terrain placeholders saved only when we later enable terrain mode
 
     // Save visuals (polyline of leg endpoints)
@@ -1308,6 +1192,7 @@ void AgriculturalStyleComplexItem::save(QJsonArray& planItems) {
     QJsonObject saveObject;
     saveObject[QStringLiteral("type")] = QStringLiteral("ComplexItem");
     saveObject[QStringLiteral("complexItem")] = complexObject;
+
     planItems.append(saveObject);
 }
 
@@ -1333,10 +1218,8 @@ bool AgriculturalStyleComplexItem::load(const QJsonObject& complexObject, int se
     _lineSpacingFact.setRawValue(inner.value(lineSpacingName).toDouble(_lineSpacingFact.rawValue().toDouble()));
     _gridAngleFact.setRawValue(inner.value(gridAngleName).toDouble(_gridAngleFact.rawValue().toDouble()));
     _entryLocationFact.setRawValue(inner.value(entryLocationName).toInt(_entryLocationFact.rawValue().toInt()));
-
     _speedModeFact.setRawValue(inner.value(speedModeName).toInt(_speedModeFact.rawValue().toInt()));
     _fixedSpeedFact.setRawValue(inner.value(fixedSpeedName).toDouble(_fixedSpeedFact.rawValue().toDouble()));
-
     _turnAroundDistanceFact.setRawValue(
         inner.value(turnAroundDistanceName).toDouble(_turnAroundDistanceFact.rawValue().toDouble()));
 
@@ -1347,9 +1230,6 @@ bool AgriculturalStyleComplexItem::load(const QJsonObject& complexObject, int se
     }
 
     _ignoreRecalc = false;
-    _rebuildTransects();
-
     setDirty(false);
     return true;
 }
-

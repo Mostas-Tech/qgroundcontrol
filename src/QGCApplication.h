@@ -17,6 +17,11 @@
 #include <QtCore/QTranslator>
 #include <QtWidgets/QApplication>
 
+#ifdef Q_OS_ANDROID
+// Forward declaration only; include is in QGCApplication.cc
+class IhattysServerService;
+#endif
+
 namespace QGCCommandLineParser {
     struct CommandLineParseResult;
 }
@@ -92,6 +97,9 @@ public:
 
     static QString cachedParameterMetaDataFile();
     static QString cachedAirframeMetaDataFile();
+    #ifdef Q_OS_ANDROID
+        std::unique_ptr<IhattysServerService> _ihattys;
+    #endif
 
 public:
     /// Perform initialize which is common to both normal application running and unit tests.

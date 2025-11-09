@@ -55,11 +55,19 @@ add_subdirectory(Vehicle)
 add_subdirectory(VideoManager)
 add_subdirectory(Viewer3D)
 
+if (ANDROID)
+    add_subdirectory(Ihattys)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Ihattys)
+    target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Ihattys)
+endif()
 # Platform-specific
 add_subdirectory(Android)
 
 # Qt plugins
 add_subdirectory(QtLocationPlugin)
+
+# Add Ihattys include directory for global access
+target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Ihattys)
 
 # ============================================================================
 # Main Application Sources
@@ -105,6 +113,7 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         Qt6::Gui
         Qt6::Network
         Qt6::Sensors
+        Qt6::Sql
         Qt6::Svg
         Qt6::TextToSpeech
         Qt6::Widgets

@@ -49,7 +49,7 @@ private:
 
 class TransectFence {
 public:
-    TransectFence() = default;
+    TransectFence() = delete;
     TransectFence(const Polygon& outer);
     const QPointF& start() const; 
     const QPointF& end() const;

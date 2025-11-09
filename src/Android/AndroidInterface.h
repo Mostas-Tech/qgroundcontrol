@@ -18,6 +18,7 @@ Q_DECLARE_LOGGING_CATEGORY(AndroidInterfaceLog)
 
 namespace AndroidInterface
 {
+    void setImmersiveSticky(bool enable);
     bool cleanJavaException();
     jclass getActivityClass();
     void setNativeMethods();

@@ -18,6 +18,7 @@ QGC_LOGGING_CATEGORY(AndroidInterfaceLog, "qgc.android.src.androidinterface")
 namespace AndroidInterface
 {
 
+
 bool cleanJavaException()
 {
     QJniEnvironment jniEnv;
@@ -145,4 +146,23 @@ void setKeepScreenOn(bool on)
     //-- Screen is locked on while QGC is running on Android
 }
 
+void AndroidInterface::setImmersiveSticky(bool enable)
+{
+    QJniObject activity = QJniObject::callStaticObjectMethod(
+        "org/qtproject/qt/android/QtNative","activity","()Landroid/app/Activity;");
+    if (!activity.isValid()) return;
+    QJniObject window = activity.callObjectMethod("getWindow","()Landroid/view/Window;");
+    if (!window.isValid()) return;
+    QJniObject decor  = window.callObjectMethod("getDecorView","()Landroid/view/View;");
+    if (!decor.isValid()) return;
+
+    const jint LAYOUT_STABLE=0x100, LAYOUT_HIDE_NAV=0x200, LAYOUT_FULLSCREEN=0x400;
+    const jint HIDE_NAV=0x2, FULLSCREEN=0x4, IMMERSIVE_STICKY=0x1000;
+
+    const jint flags = enable
+        ? (LAYOUT_STABLE|LAYOUT_HIDE_NAV|LAYOUT_FULLSCREEN|HIDE_NAV|FULLSCREEN|IMMERSIVE_STICKY)
+        : LAYOUT_STABLE;
+
+    decor.callMethod<void>("setSystemUiVisibility","(I)V", flags);
 } // namespace AndroidInterface
+}

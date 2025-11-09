@@ -112,7 +112,7 @@ static double polygonAreaAbs(const QPolygonF& poly) {
     return qAbs(a) * 0.5;
 }
 
-auto toGeoSafe = [&](const QPointF& p,const QGeoCoordinate& ref) {
+auto toGeoSafe = [](const QPointF& p,const QGeoCoordinate& ref) {
     if (!qIsFinite(p.x()) || !qIsFinite(p.y())) {
         qWarning() << "Non-finite NED point to convert:" << p;
         return QGeoCoordinate(); // invalid

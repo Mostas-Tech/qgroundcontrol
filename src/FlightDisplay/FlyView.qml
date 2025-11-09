@@ -124,9 +124,18 @@ Item {
             anchors.bottom:         parent.bottom
             anchors.left:           parent.left
             anchors.right:          guidedValueSlider.visible ? guidedValueSlider.left : parent.right
-            anchors.margins:        _widgetMargin
+
+            // Remove global margins; set per-side:
+            // Keep left/right and top (offset by toolbar), but kill bottom margin.
+            anchors.leftMargin:     _widgetMargin
+            anchors.rightMargin:    _widgetMargin
             anchors.topMargin:      toolbar.height + _widgetMargin
-            z:                      _fullItemZorder + 2 // we need to add one extra layer for map 3d viewer (normally was 1)
+            anchors.bottomMargin:   0
+
+            // If you only want this on Android:
+            // anchors.bottomMargin: (Qt.platform.os === "android" ? 0 : _widgetMargin)
+
+            z:                      _fullItemZorder + 2
             parentToolInsets:       _toolInsets
             mapControl:             _mapControl
             visible:                !QGroundControl.videoManager.fullScreen
@@ -174,17 +183,6 @@ Item {
         Viewer3D {
             id: viewer3DWindow
             anchors.fill: parent
-        }
-    }
-
-    UTMSPActivationStatusBar {
-        activationStartTimestamp:   UTMSPStateStorage.startTimeStamp
-        activationApproval:         UTMSPStateStorage.showActivationTab && QGroundControl.utmspManager.utmspVehicle.vehicleActivation
-        flightID:                   UTMSPStateStorage.flightID
-        anchors.fill:               parent
-
-        function onActivationTriggered(value) {
-            _root.utmspSendActTrigger = value
         }
     }
 

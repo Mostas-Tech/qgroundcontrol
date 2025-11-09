@@ -32,6 +32,10 @@ ApplicationWindow {
     Component.onCompleted: {
         // Start the sequence of first run prompt(s)
         firstRunPromptManager.nextPrompt()
+        if (Qt.platform.os === "android") {
+            mainWindow.visibility = Window.FullScreen
+            AndroidInterface.setImmersiveSticky(true)
+        }
     }
 
     /// Saves main window position and size and re-opens it in the same position and size next time
@@ -271,9 +275,7 @@ ApplicationWindow {
         visible:        false
     }
 
-    footer: LogReplayStatusBar {
-        visible: QGroundControl.settingsManager.flyViewSettings.showLogReplayStatusBar.rawValue
-    }
+
 
     MessageDialog {
         id:                 showTouchAreasNotification
@@ -786,4 +788,5 @@ ApplicationWindow {
             }
         }
     }
+    
 }

@@ -1,0 +1,214 @@
+syntax = "proto3";
+
+package ihattys;
+
+// ==============================
+// Common / Enums
+// ==============================
+
+// For GPS quality (FlightControllerService.subscribeGpsInfo)
+enum GpsSignalLevel {
+  LEVEL_0 = 0; // No/near-zero signal
+  LEVEL_1 = 1; // Very weak
+  LEVEL_2 = 2; // Weak (RTH may work)
+  LEVEL_3 = 3; // Good (hover possible)
+  LEVEL_4 = 4; // Very good (home point can be recorded)
+  LEVEL_5 = 5; // Strong
+}
+
+// For ActionService results (hold, etc.)
+message ActionResult {
+  enum Result {
+    RESULT_SUCCESS = 0;
+    RESULT_FAILED = 1;
+    RESULT_COMMAND_DENIED = 2;
+    RESULT_TIMEOUT = 3;
+  }
+  Result result = 1;
+  string result_str = 2;
+}
+
+// For InfoService/Get* calls
+message InfoResult {
+  enum Result {
+    RESULT_UNKNOWN = 0;
+    RESULT_SUCCESS = 1;
+    RESULT_INFORMATION_NOT_RECEIVED_YET = 2;
+    RESULT_NO_SYSTEM = 3;
+  }
+  Result result = 1;
+  string result_str = 2;
+}
+
+// For ArmAuthorizerServerService accept/reject results
+message ArmAuthorizerServerResult {
+  enum Result {
+    RESULT_UNKNOWN = 0;
+    RESULT_SUCCESS = 1;
+    RESULT_FAILED = 2;
+  }
+  Result result = 1;
+  string result_str = 2;
+}
+
+// ==============================
+// Data structs
+// ==============================
+
+message Position {
+  double latitudeDeg = 1;
+  double longitudeDeg = 2;
+  float  absoluteAltitudeM = 3; // AMSL
+  float  relativeAltitudeM = 4; // relative to home
+}
+
+message Altitude {
+  float altitudeAmslM = 1;
+  float relativeAltitudeM = 2;
+}
+
+message EulerAngle {
+  float rollDeg = 1;
+  float pitchDeg = 2;
+  float yawDeg = 3;
+  int64 timestampUs = 4; // vehicle/system epoch, microseconds
+}
+
+message GpsInfo {
+  int32 numSatellites = 1;
+  GpsSignalLevel level = 2;
+}
+
+// Identification / Product
+message Product {
+  int32 vendor_id = 1;      // optional/nice-to-have
+  string vendor_name = 2;   // brand
+  int32 product_id = 3;     // optional/nice-to-have
+  string product_name = 4;  // model
+}
+
+message Identification {
+  string hardware_uid = 1;  // serial number (unique hardware id)
+  uint64 legacy_uid = 2;    // can be zero if unused
+}
+
+// ==============================
+// CoreService
+// ==============================
+
+message SubscribeConnectionStateRequest {}
+message ConnectionStateResponse {
+  bool isConnected = 1; // RC/GCS <-> Vehicle link status
+}
+
+service CoreService {
+  rpc SubscribeConnectionState(SubscribeConnectionStateRequest)
+      returns (stream ConnectionStateResponse);
+}
+
+// ==============================
+// TelemetryService
+// ==============================
+
+message SubscribePositionRequest {}
+message PositionResponse { Position position = 1; }
+
+message SubscribeAltitudeRequest {}
+message AltitudeResponse { Altitude altitude = 1; }
+
+message SubscribeInAirRequest {}
+message InAirResponse { bool isInAir = 1; }
+
+message SubscribeAttitudeEulerRequest {}
+message AttitudeEulerResponse { EulerAngle eulerAngle = 1; }
+
+service TelemetryService {
+  // 10 Hz
+  rpc SubscribePosition(SubscribePositionRequest) returns (stream PositionResponse);
+  // 10 Hz
+  rpc SubscribeAltitude(SubscribeAltitudeRequest) returns (stream AltitudeResponse);
+  // 1 Hz
+  rpc SubscribeInAir(SubscribeInAirRequest) returns (stream InAirResponse);
+  // 50 Hz
+  rpc SubscribeAttitudeEuler(SubscribeAttitudeEulerRequest) returns (stream AttitudeEulerResponse);
+}
+
+// ==============================
+// FlightControllerService
+// ==============================
+
+message SubscribeGpsInfoRequest {}
+message GpsInfoResponse { GpsInfo gpsInfo = 1; }
+
+service FlightControllerService {
+  // 1 Hz
+  rpc SubscribeGpsInfo(SubscribeGpsInfoRequest) returns (stream GpsInfoResponse);
+}
+
+// ==============================
+// ActionService
+// ==============================
+
+message HoldRequest {}
+message HoldResponse { ActionResult action_result = 1; }
+
+service ActionService {
+  rpc Hold(HoldRequest) returns (HoldResponse);
+}
+
+// ==============================
+// ArmAuthorizerServerService
+// ==============================
+
+message SubscribeArmAuthorizationRequest {}
+message ArmAuthorizationResponse {
+  int32 systemid = 1; // target system id
+}
+
+message AcceptArmAuthorizationRequest {
+  int32 valid_time_s = 1; // authorization window in seconds
+}
+message AcceptArmAuthorizationResponse {
+  ArmAuthorizerServerResult result = 1;
+}
+
+message RejectArmAuthorizationRequest {
+  bool temporarily = 1; // default true if omitted by client
+  int32 reason = 2;     // implementation-specific reason enum/int
+  int32 extraInfo = 3;  // optional additional info
+}
+message RejectArmAuthorizationResponse {
+  ArmAuthorizerServerResult result = 1;
+}
+
+service ArmAuthorizerServerService {
+  rpc SubscribeArmAuthorization(SubscribeArmAuthorizationRequest)
+      returns (stream ArmAuthorizationResponse);
+
+  rpc AcceptArmAuthorization(AcceptArmAuthorizationRequest)
+      returns (AcceptArmAuthorizationResponse);
+
+  rpc RejectArmAuthorization(RejectArmAuthorizationRequest)
+      returns (RejectArmAuthorizationResponse);
+}
+
+// ==============================
+// InfoService
+// ==============================
+
+message GetProductRequest {}
+message GetProductResponse {
+  InfoResult info_result = 1;
+  Product product = 2;
+}
+
+message GetIdentificationRequest {}
+message GetIdentificationResponse {
+  InfoResult info_result = 1;
+  Identification identification = 2;
+}
+
+service InfoService {
+  rpc GetProduct(GetProductRequest) returns (GetProductResponse);
+  rpc GetIdentification(GetIdentificationRequest) returns (GetIdentificationResponse);
+}

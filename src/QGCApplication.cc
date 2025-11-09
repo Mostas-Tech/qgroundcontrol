@@ -52,6 +52,10 @@
 #include "SerialLink.h"
 #endif
 
+#ifdef Q_OS_ANDROID
+#include "Ihattys/IhattysServer.h"
+#endif
+
 QGC_LOGGING_CATEGORY(QGCApplicationLog, "API.QGCApplication")
 
 QGCApplication::QGCApplication(int &argc, char *argv[], const QGCCommandLineParser::CommandLineParseResult &cli)
@@ -148,6 +152,7 @@ QGCApplication::QGCApplication(int &argc, char *argv[], const QGCCommandLinePars
     // We need to set language as early as possible prior to loading on JSON files.
     setLanguage();
 
+
 #ifndef QGC_DAILY_BUILD
     _checkForNewVersion();
 #endif
@@ -231,6 +236,19 @@ void QGCApplication::init()
     } else if (!_runningUnitTests) {
         _initForNormalAppBoot();
     }
+    qCWarning(QGCApplicationLog) << "TESTTTTTTTTTTTTTTT";
+    #ifdef Q_OS_ANDROID
+    _ihattys = std::make_unique<IhattysServerService>(this);
+    // Optional: make port configurable later via App Settings; for now default is fine
+    if (!_ihattys->start()) {
+        qCWarning(QGCApplicationLog) << "IHATTYS gRPC server failed to start";
+    } else {
+        qCWarning(QGCApplicationLog) << "IHATTYS gRPC server listening on" << _ihattys->listenAddress();
+    }
+    connect(this, &QCoreApplication::aboutToQuit, this, [this](){
+        if (_ihattys) _ihattys->stop();
+    });
+    #endif
 }
 
 void QGCApplication::_initVideo()

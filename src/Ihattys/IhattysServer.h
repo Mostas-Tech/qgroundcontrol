@@ -100,18 +100,6 @@ private:
     Decision _decision;
 };
 
-signals:
-    /**
-     * Emitted whenever the arm authorization decision changes.
-     * @param systemId system id the decision applies to (0 if none)
-     * @param decisionType 0=Unknown, 1=Accepted, 2=Rejected
-     * @param temporaryReject true for temporary rejects
-     * @param reason optional textual reason
-     * @param extraInfo optional extra info
-     * @param validForMs milliseconds from now the decision remains valid, -1 for indefinite
-     */
-    void armStateChanged(int systemId, int decisionType, bool temporaryReject, const QString& reason, const QString& extraInfo, qint64 validForMs);
-
 /// The main service wrapper which owns the gRPC Server and service implementations.
 class IhattysServerService : public QObject {
     Q_OBJECT

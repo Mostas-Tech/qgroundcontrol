@@ -151,6 +151,10 @@ endif()
 # ============================================================================
 
 set(QT_NO_PRIVATE_MODULE_WARNING ON)
+find_package(Threads REQUIRED)
+find_package(ZLIB REQUIRED)
+find_package(protobuf CONFIG REQUIRED)
+find_package(gRPC CONFIG REQUIRED)
 
 find_package(Qt6
     ${QGC_QT_MINIMUM_VERSION}...${QGC_QT_MAXIMUM_VERSION}

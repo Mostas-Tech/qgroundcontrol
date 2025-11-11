@@ -1,126 +1,143 @@
-cmake_minimum_required(VERSION 3.15)
-project(Ihattys)
+# =============================================================================
+# Ihattys – gRPC/Protobuf integration (no separate library)
+# =============================================================================
+# Assumes top-level CMake has already done:
+#   find_package(Threads REQUIRED)
+#   find_package(ZLIB REQUIRED)
+#   find_package(protobuf CONFIG REQUIRED)
+#   find_package(gRPC CONFIG REQUIRED)
+#
+# If not, the following "guarded" finds will no-op when already done.
 
-# Find required packages
-find_package(Threads REQUIRED)
-
-# Find ZLIB first and create the target if it doesn't exist
-find_package(ZLIB REQUIRED)
-if(NOT TARGET ZLIB::ZLIB)
-    # Create an alias target if vcpkg didn't export it properly
-    add_library(ZLIB::ZLIB INTERFACE IMPORTED)
-    set_target_properties(ZLIB::ZLIB PROPERTIES
-        INTERFACE_INCLUDE_DIRECTORIES "${ZLIB_INCLUDE_DIRS}"
-        INTERFACE_LINK_LIBRARIES "${ZLIB_LIBRARIES}"
-    )
+if(NOT TARGET protobuf::libprotobuf)
+  find_package(protobuf CONFIG REQUIRED)
 endif()
 
-find_package(absl CONFIG REQUIRED)
+if(NOT TARGET gRPC::grpc)
+  find_package(gRPC CONFIG REQUIRED)
+endif()
 
-# For cross-compilation, we need host tools (protoc, grpc_cpp_plugin)
-# and target libraries (libprotobuf, libgrpc++)
-if(CMAKE_CROSSCOMPILING)
-    # Manually set paths to host tools
-    set(PROTOC_EXECUTABLE "C:/vcpkg/installed/x64-windows/tools/protobuf/protoc.exe" CACHE FILEPATH "protoc executable")
-    set(GRPC_CPP_PLUGIN_EXECUTABLE "C:/vcpkg/installed/x64-windows/tools/grpc/grpc_cpp_plugin.exe" CACHE FILEPATH "grpc_cpp_plugin executable")
-    
-    # Find target libraries
-    find_package(Protobuf CONFIG REQUIRED)
-    find_package(gRPC CONFIG REQUIRED)
+# =============================================================================
+# Paths
+# =============================================================================
+set(PROTO_DIR     "${CMAKE_CURRENT_SOURCE_DIR}")
+set(GENERATED_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
+
+file(MAKE_DIRECTORY "${GENERATED_DIR}")
+
+set(PROTO_FILE "${PROTO_DIR}/ihattys_api.proto")
+get_filename_component(PROTO_BASENAME "${PROTO_FILE}" NAME)  # ihattys_api.proto
+
+# Outputs in the build tree
+set(PROTO_SRCS "${GENERATED_DIR}/ihattys_api.pb.cc")
+set(PROTO_HDRS "${GENERATED_DIR}/ihattys_api.pb.h")
+set(GRPC_SRCS  "${GENERATED_DIR}/ihattys_api.grpc.pb.cc")
+set(GRPC_HDRS  "${GENERATED_DIR}/ihattys_api.grpc.pb.h")
+
+# Use a path for protoc outputs that does NOT contain a Windows drive-colon,
+# because protoc treats a colon as the separator between generator options and
+# the output directory (e.g. --cpp_out=opt1,opt2:OUT_DIR). On Windows an
+# absolute path like "E:/..." contains a colon and confuses protoc. Compute a
+# path relative to the proto working directory and use that in the command.
+file(RELATIVE_PATH REL_GENERATED_DIR "${PROTO_DIR}" "${GENERATED_DIR}")
+
+
+# =============================================================================
+# Tools (portable lookup)
+# =============================================================================
+# Prefer imported locations from the package; fall back to PATH
+get_target_property(_PROTOC_LOC protobuf::protoc IMPORTED_LOCATION)
+if(NOT _PROTOC_LOC)
+  find_program(_PROTOC protoc REQUIRED)
 else()
-    # Native build - find everything normally
-    find_package(Protobuf CONFIG REQUIRED)
-    find_package(gRPC CONFIG REQUIRED)
-    
-    get_target_property(PROTOC_EXECUTABLE protobuf::protoc IMPORTED_LOCATION)
-    get_target_property(GRPC_CPP_PLUGIN_EXECUTABLE gRPC::grpc_cpp_plugin IMPORTED_LOCATION)
+  set(_PROTOC "${_PROTOC_LOC}")
 endif()
 
-# Verify we found the executables
-if(NOT EXISTS ${PROTOC_EXECUTABLE})
-    message(FATAL_ERROR "protoc executable not found at ${PROTOC_EXECUTABLE}. Install protobuf:x64-windows in vcpkg")
+get_target_property(_GRPC_PLUGIN_LOC gRPC::grpc_cpp_plugin IMPORTED_LOCATION)
+if(NOT _GRPC_PLUGIN_LOC)
+  find_program(_GRPC_PLUGIN grpc_cpp_plugin REQUIRED)
+else()
+  set(_GRPC_PLUGIN "${_GRPC_PLUGIN_LOC}")
 endif()
 
-if(NOT EXISTS ${GRPC_CPP_PLUGIN_EXECUTABLE})
-    message(FATAL_ERROR "grpc_cpp_plugin executable not found at ${GRPC_CPP_PLUGIN_EXECUTABLE}. Install grpc:x64-windows in vcpkg")
+# =============================================================================
+# Code generation
+# =============================================================================
+# Resolve protoc and plugin, as you already do...
+get_target_property(_PROTOC_LOC protobuf::protoc IMPORTED_LOCATION)
+if(NOT _PROTOC_LOC)
+  find_program(_PROTOC protoc REQUIRED)
+else()
+  set(_PROTOC "${_PROTOC_LOC}")
 endif()
 
-# Set proto file path
-set(PROTO_FILE "${CMAKE_CURRENT_SOURCE_DIR}/ihattys_api.proto")
+get_target_property(_GRPC_PLUGIN_LOC gRPC::grpc_cpp_plugin IMPORTED_LOCATION)
+if(NOT _GRPC_PLUGIN_LOC)
+  find_program(_GRPC_PLUGIN grpc_cpp_plugin REQUIRED)
+else()
+  set(_GRPC_PLUGIN "${_GRPC_PLUGIN_LOC}")
+endif()
 
-# Output directories for generated files
-set(PROTO_BINARY_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
-file(MAKE_DIRECTORY ${PROTO_BINARY_DIR})
+# Convert plugin path to native Windows form (no quotes here)
+file(TO_NATIVE_PATH "${_GRPC_PLUGIN}" GRPC_PLUGIN_NATIVE)
 
-# Generated source files
-set(PROTO_SRCS "${PROTO_BINARY_DIR}/ihattys_api.pb.cc")
-set(PROTO_HDRS "${PROTO_BINARY_DIR}/ihattys_api.pb.h")
-set(GRPC_SRCS "${PROTO_BINARY_DIR}/ihattys_api.grpc.pb.cc")
-set(GRPC_HDRS "${PROTO_BINARY_DIR}/ihattys_api.grpc.pb.h")
-
-# Custom command to generate protobuf files
 add_custom_command(
-    OUTPUT ${PROTO_SRCS} ${PROTO_HDRS} ${GRPC_SRCS} ${GRPC_HDRS}
-    COMMAND ${PROTOC_EXECUTABLE}
-    ARGS --grpc_out=${PROTO_BINARY_DIR}
-         --cpp_out=${PROTO_BINARY_DIR}
-         -I${CMAKE_CURRENT_SOURCE_DIR}
-         --plugin=protoc-gen-grpc=${GRPC_CPP_PLUGIN_EXECUTABLE}
-         ${PROTO_FILE}
-    DEPENDS ${PROTO_FILE}
-    COMMENT "Generating gRPC and Protobuf files from ${PROTO_FILE}"
+  OUTPUT
+    ${PROTO_SRCS} ${PROTO_HDRS}
+    ${GRPC_SRCS}  ${GRPC_HDRS}
+  WORKING_DIRECTORY "${PROTO_DIR}"
+  COMMAND "${_PROTOC}"
+      -I "${PROTO_DIR}"
+      --cpp_out=${REL_GENERATED_DIR}
+      --grpc_out=${REL_GENERATED_DIR}
+      # IMPORTANT: no extra quotes around the plugin mapping:
+      --plugin=protoc-gen-grpc=${GRPC_PLUGIN_NATIVE}
+      "${PROTO_BASENAME}"
+  DEPENDS "${PROTO_FILE}"
+  COMMENT "Generating C++ sources from ${PROTO_FILE}"
+  VERBATIM
 )
 
-# Create library
-add_library(Ihattys STATIC
+# Phony target to make dependencies explicit for Ninja/Qt autogen
+add_custom_target(IhattysProtos
+  DEPENDS
+    ${PROTO_SRCS} ${PROTO_HDRS}
+    ${GRPC_SRCS}  ${GRPC_HDRS}
+)
+
+# Ensure the main app sees/generated files before autogen comp
+add_dependencies(${CMAKE_PROJECT_NAME} IhattysProtos)
+
+# =============================================================================
+# Compile into main target
+# =============================================================================
+target_sources(${CMAKE_PROJECT_NAME}
+  PRIVATE
     IhattysServer.cc
-    IhattysServer.h
     ${PROTO_SRCS}
     ${GRPC_SRCS}
 )
 
-# Include directories
-target_include_directories(Ihattys
-    PUBLIC
-        ${CMAKE_CURRENT_SOURCE_DIR}
-        ${PROTO_BINARY_DIR}
-    PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR}/..             # parent src/
-        ${CMAKE_CURRENT_SOURCE_DIR}/../Utilities   # for Utilities/ headers
-        ${CMAKE_CURRENT_SOURCE_DIR}/../QmlControls # for QmlObjectListModel.h
+# Headers for both your code and generated code
+target_include_directories(${CMAKE_PROJECT_NAME}
+  PRIVATE
+    "${CMAKE_CURRENT_SOURCE_DIR}"
+    "${GENERATED_DIR}"
 )
 
-# Link libraries
-target_link_libraries(Ihattys
-    PUBLIC
-        gRPC::grpc++
-        protobuf::libprotobuf
-        absl::strings
-        absl::status
-        absl::statusor
-        Threads::Threads
-        ZLIB::ZLIB
-        Qt6::Core
-)
+# If you want to link here, you can, but typically these are linked at the top level.
+# Keep this block only if your top-level does NOT already link them.
+# target_link_libraries(${CMAKE_PROJECT_NAME}
+#   PRIVATE
+#     gRPC::grpc
+#     gRPC::grpc++
+#     protobuf::libprotobuf
+# )
 
-# Only link reflection on non-Android platforms
-if(NOT ANDROID)
-    target_link_libraries(Ihattys PUBLIC gRPC::grpc++_reflection)
-endif()
-
-# Set C++ standard
-target_compile_features(Ihattys PUBLIC cxx_std_17)
-
-# For Android builds, add position independent code
-if(ANDROID)
-    set_target_properties(Ihattys PROPERTIES
-        POSITION_INDEPENDENT_CODE ON
-    )
-endif()
-
-# Export include directories for parent project
-set(IHATTYS_INCLUDE_DIRS 
-    ${CMAKE_CURRENT_SOURCE_DIR}
-    ${PROTO_BINARY_DIR}
-    PARENT_SCOPE
-)
+# =============================================================================
+# (Optional) extras if you actually use Abseil in IhattysServer.cc/.h
+# =============================================================================
+# if(NOT TARGET absl::strings)
+#   find_package(absl CONFIG REQUIRED)
+# endif()
+# target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE absl::strings absl::status absl::statusor)

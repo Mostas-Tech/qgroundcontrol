@@ -23,6 +23,7 @@ qt_add_qml_module(QGroundControlModule
     NO_PLUGIN
 )
 
+
 # ============================================================================
 # Subdirectories
 # ============================================================================
@@ -54,20 +55,14 @@ add_subdirectory(UTMSP)
 add_subdirectory(Vehicle)
 add_subdirectory(VideoManager)
 add_subdirectory(Viewer3D)
+add_subdirectory(Ihattys)
 
-if (ANDROID)
-    add_subdirectory(Ihattys)
-    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE Ihattys)
-    target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Ihattys)
-endif()
+
 # Platform-specific
 add_subdirectory(Android)
 
 # Qt plugins
 add_subdirectory(QtLocationPlugin)
-
-# Add Ihattys include directory for global access
-target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/Ihattys)
 
 # ============================================================================
 # Main Application Sources
@@ -148,6 +143,14 @@ target_link_libraries(${CMAKE_PROJECT_NAME}
         ToolbarModule
         UTMSPModule
         VehicleSetupModule
+
+
+        protobuf::libprotobuf
+        gRPC::grpc
+        gRPC::grpc++
+        Threads::Threads
+
+
 )
 
 # ----------------------------------------------------------------------------

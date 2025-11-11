@@ -236,7 +236,7 @@ void QGCApplication::init()
     } else if (!_runningUnitTests) {
         _initForNormalAppBoot();
     }
-    qCWarning(QGCApplicationLog) << "TESTTTTTTTTTTTTTTT";
+
     #ifdef Q_OS_ANDROID
     _ihattys = std::make_unique<IhattysServerService>(this);
     // Optional: make port configurable later via App Settings; for now default is fine

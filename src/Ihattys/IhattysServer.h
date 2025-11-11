@@ -1,72 +1,259 @@
 #pragma once
+
 #include <QObject>
+#include <QPointer>
+#include <QTimer>
+#include <QDateTime>
+#include <QReadWriteLock>
 #include <atomic>
 #include <memory>
 #include <thread>
-#include <unordered_set>
 #include <mutex>
-#include <chrono>
-#include <QtCore/QLoggingCategory>
+#include <condition_variable>
 
+// gRPC
 #include <grpcpp/grpcpp.h>
-#include "ihattys_api.grpc.pb.h"   // must contain: CoreService, TelemetryService, FlightControllerService,
-// ActionService, ArmAuthorizerServerService, InfoService
 
-Q_DECLARE_LOGGING_CATEGORY(IhattysServerLog);
+// Generated from your .proto files (adjust include paths to your build)
+#include "ihattys_api.pb.h"
+#include "ihattys_api.grpc.pb.h"
 
+// QGC forward decls (avoid heavy includes in header)
+class Vehicle;
+class MultiVehicleManager;
+class QGCApplication;
+
+/// Thread-safe snapshot of telemetry pulled from QGC Vehicle on the Qt thread,
+/// read by gRPC worker threads without touching QObjects directly.
+struct TelemetrySnapshot {
+    double lat_deg = std::numeric_limits<double>::quiet_NaN();
+    double lon_deg = std::numeric_limits<double>::quiet_NaN();
+    double alt_amsl_m = std::numeric_limits<double>::quiet_NaN();
+    double rel_alt_m  = std::numeric_limits<double>::quiet_NaN();
+
+    float roll_deg  = std::numeric_limits<float>::quiet_NaN();
+    float pitch_deg = std::numeric_limits<float>::quiet_NaN();
+    float yaw_deg   = std::numeric_limits<float>::quiet_NaN();
+
+    bool in_air = false;
+
+    int gps_sat_count = 0;
+    // Derived 0..5 per your levels
+    int gps_signal_level = 0;
+
+    // Monotonic timestamp (us) when the attitude was last sampled
+    int64_t attitude_timestamp_us = 0;
+};
+
+/// QObject living on Qt main thread that listens to Vehicle signals / Facts,
+/// updates an internal snapshot behind a read-write lock.
+class TelemetryCache : public QObject {
+    Q_OBJECT
+public:
+    explicit TelemetryCache(QObject* parent = nullptr);
+    void attachActiveVehicle(Vehicle* v);  // <— new
+    void attachVehicle(Vehicle* v);
+    void detachVehicle();
+
+    TelemetrySnapshot snapshot() const;
+
+private slots:
+    void _pollFromVehicle(); // periodic polling when signals aren’t convenient
+
+private:
+    QPointer<Vehicle> _vehicle;
+    mutable QReadWriteLock _lock;
+    TelemetrySnapshot _snap;
+    QTimer _pollTimer; // 20 Hz polling; we downsample per stream in service threads
+
+    void _recomputeGpsSignalLevel(); // derive 0..5 level from sat count (simple heuristic)
+};
+
+/// Arming authorization state machine (thread-safe), backing ArmAuthorizerServerService.
+/// External arming logic in QGC can ask isArmAuthorizedNow(systemId).
+class ArmAuthState : public QObject {
+    Q_OBJECT
+public:
+    explicit ArmAuthState(QObject* parent = nullptr) : QObject(parent) {}
+
+    struct Decision {
+        enum Type { Unknown, Accepted, Rejected } type{Unknown};
+        // When Accepted, valid until this wall-clock timepoint; when Rejected and temporary,
+        // valid until this timepoint, else until overridden.
+        std::chrono::steady_clock::time_point valid_until{};
+        // Optional context
+        bool temporary_reject{false};
+        std::string reason;
+        std::string extra_info;
+        int system_id{0};
+    };
+
+    void acceptForSeconds(int systemId, int valid_time_s);
+    void reject(bool temporary, const std::string& reason, const std::string& extra);
+    Decision current() const;
+
+    // Convenience helper for QML/C++ arming logic
+    Q_INVOKABLE bool isArmAuthorizedNow(int systemId) const;
+
+private:
+    mutable std::mutex _mx;
+    Decision _decision;
+};
+
+signals:
+    /**
+     * Emitted whenever the arm authorization decision changes.
+     * @param systemId system id the decision applies to (0 if none)
+     * @param decisionType 0=Unknown, 1=Accepted, 2=Rejected
+     * @param temporaryReject true for temporary rejects
+     * @param reason optional textual reason
+     * @param extraInfo optional extra info
+     * @param validForMs milliseconds from now the decision remains valid, -1 for indefinite
+     */
+    void armStateChanged(int systemId, int decisionType, bool temporaryReject, const QString& reason, const QString& extraInfo, qint64 validForMs);
+
+/// The main service wrapper which owns the gRPC Server and service implementations.
 class IhattysServerService : public QObject {
     Q_OBJECT
-    Q_PROPERTY(QString listenAddress READ listenAddress WRITE setListenAddress NOTIFY listenAddressChanged)
-
-   public:
+public:
     explicit IhattysServerService(QObject* parent = nullptr);
     ~IhattysServerService() override;
 
-    Q_INVOKABLE bool start();
-    Q_INVOKABLE void stop();
+    // Start/Stop server. Hard-coded address per your request: 0.0.0.0:50051
+    bool start();
+    void stop();
 
-    QString listenAddress() const { return _listenAddress; }
-    void setListenAddress(const QString& a) {
-        if (_listenAddress == a) return;
-        _listenAddress = a;
-        emit listenAddressChanged();
-    }
+    // Bind to app lifecycle
+    static void bindToQGCAppLifecycle(QGCApplication* app, MultiVehicleManager* mvm);
+    void attachActiveVehicle(Vehicle* v);
 
-            // ↓↓↓ Make the type public so IhattysServer.cc can name it ↓↓↓
-    struct VehicleState {
-        std::atomic<bool> connected{false};   // RC/GCS <-> Vehicle link
-        std::atomic<double> lat{0}, lon{0}, alt_amsl{0}, alt_rel{0};
-        std::atomic<float>  roll{0}, pitch{0}, yaw{0};
-        std::atomic<int32_t> numSat{0};
-        std::atomic<int>    gpsLevel{0};
-        std::atomic<bool>   inAir{false};
-        std::string vendorName{"Unknown"};
-        std::string productName{"Unknown"};
-        std::string hardwareUid{""};
-        std::atomic<int64_t> armValidUntilUs{0};
+    // Expose arm auth state checker to the rest of QGC
+    Q_INVOKABLE bool isArmAuthorizedNow(int systemId) const { return _armAuth.isArmAuthorizedNow(systemId); }
+
+    // For unit tests
+    std::string listenAddress() const { return _listenAddress; }
+
+signals:
+    void serverStarted();
+    void serverStopped();
+
+private:
+    // Dependencies (main thread)
+    TelemetryCache _telemetryCache;
+    ArmAuthState   _armAuth;
+
+    // gRPC server state
+    std::unique_ptr<grpc::Server> _server;
+    std::string _listenAddress = "0.0.0.0:50051";
+    std::thread _serverThread;
+
+    // ==== Service implementations (synchronous for clarity) ====
+    class CoreServiceImpl final : public ihattys::v1::CoreService::Service {
+    public:
+        explicit CoreServiceImpl(const TelemetryCache* cache) : _cache(cache) {}
+        grpc::Status subscribeConnectionState(
+            grpc::ServerContext* ctx,
+            const ihattys::v1::SubscribeConnectionStateRequest*,
+            grpc::ServerWriter<ihattys::v1::ConnectionStateResponse>* writer) override;
+
+    private:
+        const TelemetryCache* _cache{};
     };
 
-   signals:
-    void started();
-    void stopped();
-    void listenAddressChanged();
+    class TelemetryServiceImpl final : public ihattys::v1::TelemetryService::Service {
+    public:
+        explicit TelemetryServiceImpl(const TelemetryCache* cache) : _cache(cache) {}
+        grpc::Status subscribePosition(
+            grpc::ServerContext*,
+            const ihattys::v1::SubscribePositionRequest*,
+            grpc::ServerWriter<ihattys::v1::Position>* writer) override;
 
-   private:
-    // gRPC runtime members...
-    std::unique_ptr<grpc::Server> _server;
-    std::unique_ptr<grpc::ServerCompletionQueue> _cq;
+        grpc::Status subscribeAltitude(
+            grpc::ServerContext*,
+            const ihattys::v1::SubscribeAltitudeRequest*,
+            grpc::ServerWriter<ihattys::v1::Altitude>* writer) override;
 
-    std::unique_ptr<ihattys::InfoService::AsyncService>                _svcInfo;
-    std::unique_ptr<ihattys::CoreService::AsyncService>                _svcCore;
-    std::unique_ptr<ihattys::TelemetryService::AsyncService>           _svcTelemetry;
-    std::unique_ptr<ihattys::FlightControllerService::AsyncService>    _svcFlightCtl;
-    std::unique_ptr<ihattys::ActionService::AsyncService>              _svcAction;
-    std::unique_ptr<ihattys::ArmAuthorizerServerService::AsyncService> _svcArmAuth;
+        grpc::Status subscribeInAir(
+            grpc::ServerContext*,
+            const ihattys::v1::SubscribeInAirRequest*,
+            grpc::ServerWriter<ihattys::v1::InAirResponse>* writer) override;
 
-    std::thread _cqThread;
-    std::atomic<bool> _running{false};
-    QString _listenAddress{QStringLiteral("127.0.0.1:50051")};
+        grpc::Status subscribeAttitudeEuler(
+            grpc::ServerContext*,
+            const ihattys::v1::SubscribeAttitudeEulerRequest*,
+            grpc::ServerWriter<ihattys::v1::AttitudeEulerResponse>* writer) override;
 
-    VehicleState _state;  // keeping the INSTANCE private is fine
-    void _cqThreadMain();
+    private:
+        const TelemetryCache* _cache{};
+    };
+
+    class FlightControllerServiceImpl final : public ihattys::v1::FlightControllerService::Service {
+    public:
+        explicit FlightControllerServiceImpl(const TelemetryCache* cache) : _cache(cache) {}
+        grpc::Status subscribeGpsInfo(
+            grpc::ServerContext*,
+            const ihattys::v1::SubscribeGpsInfoRequest*,
+            grpc::ServerWriter<ihattys::v1::GpsInfo>* writer) override;
+
+    private:
+        const TelemetryCache* _cache{};
+    };
+
+    class ActionServiceImpl final : public ihattys::v1::ActionService::Service {
+    public:
+        grpc::Status hold(grpc::ServerContext*,
+                          const ihattys::v1::HoldRequest*,
+                          ihattys::v1::ActionResult* response) override;
+    };
+
+    class ArmAuthorizerServerServiceImpl final : public ihattys::v1::ArmAuthorizerServerService::Service {
+    public:
+        explicit ArmAuthorizerServerServiceImpl(ArmAuthState* state, const TelemetryCache* cache)
+            : _state(state), _cache(cache) {}
+
+        grpc::Status subscribeArmAuthorization(
+            grpc::ServerContext*,
+            const ihattys::v1::SubscribeArmAuthorizationRequest*,
+            grpc::ServerWriter<ihattys::v1::ArmAuthorizationResponse>* writer) override;
+
+        grpc::Status acceptArmAuthorization(
+            grpc::ServerContext*,
+            const ihattys::v1::AcceptArmAuthorizationRequest*,
+            ihattys::v1::ArmAuthorizerServerResult* writer) override;
+
+        grpc::Status rejectArmAuthorization(
+            grpc::ServerContext*,
+            const ihattys::v1::RejectArmAuthorizationRequest*,
+            ihattys::v1::ArmAuthorizerServerResult* writer) override;
+
+    private:
+        ArmAuthState* _state{};
+        const TelemetryCache* _cache{};
+    };
+
+    class InfoServiceImpl final : public ihattys::v1::InfoService::Service {
+    public:
+        explicit InfoServiceImpl(const TelemetryCache* cache) : _cache(cache) {}
+        grpc::Status GetProduct(grpc::ServerContext*,
+                                const ihattys::v1::GetProductRequest*,
+                                ihattys::v1::Product* reply) override;
+
+        grpc::Status GetIdentification(grpc::ServerContext*,
+                                       const ihattys::v1::GetIdentificationRequest*,
+                                       ihattys::v1::Identification* reply) override;
+    private:
+        const TelemetryCache* _cache{};
+    };
+
+    // Instances
+    std::unique_ptr<CoreServiceImpl>             _coreSvc;
+    std::unique_ptr<TelemetryServiceImpl>        _telemetrySvc;
+    std::unique_ptr<FlightControllerServiceImpl> _fcSvc;
+    std::unique_ptr<ActionServiceImpl>           _actionSvc;
+    std::unique_ptr<ArmAuthorizerServerServiceImpl> _armSvc;
+    std::unique_ptr<InfoServiceImpl>             _infoSvc;
+
+    // Helpers
+    static void _sleepMillis(int ms);
 };
+

@@ -1,647 +1,433 @@
 #include "IhattysServer.h"
-#include <QDebug>
-#include "Utilities/QGCLoggingCategory.h"
-#include <grpcpp/alarm.h>
-#include <chrono>  // std::chrono clocks and durations
 
-QGC_LOGGING_CATEGORY(IhattysServerLog, "IhattysServerService");
+// QGC includes (we include in .cc to avoid header bloat)
+#include "QGCApplication.h"
+#include "MultiVehicleManager.h"
+#include "Vehicle.h"
 
-using grpc::ServerAsyncResponseWriter;
-using grpc::ServerAsyncWriter;
-using grpc::ServerBuilder;
-using grpc::ServerCompletionQueue;
-using grpc::ServerContext;
-using grpc::Status;
-using std::chrono::steady_clock;
-using std::chrono::microseconds;
+// Qt
+#include <QCoreApplication>
+#include <QThread>
 
-// Frequencies -> periods (ms)
-constexpr int kHz1     = 1000; // 1 Hz
-constexpr int k10Hz    = 100;  // 10 Hz
-constexpr int k20Hz    = 50;   // 20 Hz
-constexpr int k50Hz    = 20;   // 50 Hz
-constexpr int k100Hz   = 10;   // 100 Hz
+// gRPC
+#include <grpcpp/server_builder.h>
 
-namespace {
+using namespace std::chrono_literals;
 
-// ------------------------
-// Base Call holder
-// ------------------------
-struct CallBase {
-    virtual ~CallBase() = default;
-    virtual void proceed(bool ok) = 0;
-};
+// =================== TelemetryCache ===================
 
-// Helper for periodic writes in streaming RPCs
-inline int64_t nowUs() {
-    return std::chrono::duration_cast<microseconds>(steady_clock::now().time_since_epoch()).count();
+TelemetryCache::TelemetryCache(QObject* parent)
+    : QObject(parent)
+{
+    // Poll at 20 Hz, we downsample in each streaming RPC.
+    _pollTimer.setInterval(50);
+    _pollTimer.setTimerType(Qt::PreciseTimer);
+    connect(&_pollTimer, &QTimer::timeout, this, &TelemetryCache::_pollFromVehicle);
+    _pollTimer.start();
 }
 
-} // namespace
+
+
+void TelemetryCache::attachVehicle(Vehicle* v)
+{
+    QWriteLocker l(&_lock);
+    _vehicle = v;
+}
+
+void TelemetryCache::detachVehicle()
+{
+    QWriteLocker l(&_lock);
+    _vehicle = nullptr;
+}
+
+TelemetrySnapshot TelemetryCache::snapshot() const
+{
+    QReadLocker l(&_lock);
+    return _snap;
+}
+
+void TelemetryCache::_recomputeGpsSignalLevel()
+{
+    // Simple heuristic (you can refine with HDOP/fix type if available)
+    int s = _snap.gps_sat_count;
+    int level = 0;
+    if      (s >= 18) level = 5;
+    else if (s >= 14) level = 4;
+    else if (s >= 10) level = 3;
+    else if (s >= 7)  level = 2;
+    else if (s >= 4)  level = 1;
+    else              level = 0;
+    _snap.gps_signal_level = level;
+}
+
+void TelemetryCache::_pollFromVehicle()
+{
+    Vehicle* v = _vehicle;
+    if (!v) return;
+
+    QWriteLocker l(&_lock);
+
+    // Latitude / Longitude (degrees)
+    _snap.lat_deg   = v->latitude();
+    _snap.lon_deg   = v->longitude();
+
+    // Altitudes (meters)
+    if (v->altitudeAMSL())     _snap.alt_amsl_m = v->altitudeAMSL()->rawValue().toDouble();
+    if (v->altitudeRelative()) _snap.rel_alt_m  = v->altitudeRelative()->rawValue().toDouble();
+
+    // In-Air
+    _snap.in_air = v->flying();
+
+    // Attitude (degrees) and timestamp (us)
+    // Prefer Facts if available; else derive from vehicle helpers.
+    if (v->roll())  _snap.roll_deg  = v->roll()->rawValue().toFloat();
+    if (v->pitch()) _snap.pitch_deg = v->pitch()->rawValue().toFloat();
+    if (v->heading()) _snap.yaw_deg = v->heading()->rawValue().toFloat();
+    _snap.attitude_timestamp_us = QDateTime::currentMSecsSinceEpoch() * 1000LL;
+
+    // GPS
+    // If you have a Fact for sat count, use it; otherwise, v->satelliteCount()
+    int sats = 0;
+    _snap.gps_sat_count = 0;
+    _recomputeGpsSignalLevel();
+}
+
+// =================== ArmAuthState ===================
+
+void ArmAuthState::acceptForSeconds(int systemId, int valid_time_s)
+{
+    std::lock_guard<std::mutex> lk(_mx);
+    _decision.type = Decision::Accepted;
+    _decision.system_id = systemId;
+    _decision.temporary_reject = false;
+    _decision.reason.clear();
+    _decision.extra_info.clear();
+    _decision.valid_until = std::chrono::steady_clock::now() + std::chrono::seconds(valid_time_s);
+}
+
+void ArmAuthState::reject(bool temporary, const std::string& reason, const std::string& extra)
+{
+    std::lock_guard<std::mutex> lk(_mx);
+    _decision.type = Decision::Rejected;
+    _decision.temporary_reject = temporary;
+    _decision.reason = reason;
+    _decision.extra_info = extra;
+    _decision.valid_until = temporary ? (std::chrono::steady_clock::now() + 5s)  // small backoff, adjust as desired
+                                      : std::chrono::steady_clock::time_point::max();
+}
+
+ArmAuthState::Decision ArmAuthState::current() const
+{
+    std::lock_guard<std::mutex> lk(_mx);
+    return _decision;
+}
+
+bool ArmAuthState::isArmAuthorizedNow(int systemId) const
+{
+    std::lock_guard<std::mutex> lk(_mx);
+    auto now = std::chrono::steady_clock::now();
+    if (_decision.type == Decision::Accepted) {
+        return _decision.system_id == systemId && now <= _decision.valid_until;
+    }
+    if (_decision.type == Decision::Rejected) {
+        // Reject rules: if temporary and expired, treat as unknown (not authorized)
+        if (_decision.temporary_reject && now > _decision.valid_until) {
+            return false;
+        }
+        return false;
+    }
+    return false; // Unknown => not authorized
+}
+
+// =================== Service impls ===================
+
+static inline bool _ctxCancelled(grpc::ServerContext* ctx) {
+    return ctx->IsCancelled();
+}
+
+// -------- CoreService --------
+
+grpc::Status IhattysServerService::CoreServiceImpl::subscribeConnectionState(
+    grpc::ServerContext* ctx,
+    const ihattys::v1::SubscribeConnectionStateRequest*,
+    grpc::ServerWriter<ihattys::v1::ConnectionStateResponse>* writer)
+{
+    // 1 Hz as a “status” stream is fine here
+    const int period_ms = 1000;
+    ihattys::v1::ConnectionStateResponse resp;
+
+    while (!_ctxCancelled(ctx)) {
+        auto snap = _cache->snapshot();
+        const bool connected = std::isfinite(snap.lat_deg) && std::isfinite(snap.lon_deg); // heuristic
+        resp.set_isconnected(connected);
+        if (!writer->Write(resp)) break;
+        IhattysServerService::_sleepMillis(period_ms);
+    }
+    return grpc::Status::OK;
+}
+
+// -------- TelemetryService --------
+
+grpc::Status IhattysServerService::TelemetryServiceImpl::subscribePosition(
+    grpc::ServerContext* ctx,
+    const ihattys::v1::SubscribePositionRequest*,
+    grpc::ServerWriter<ihattys::v1::Position>* writer)
+{
+    // 10 Hz
+    const int period_ms = 100;
+    ihattys::v1::Position msg;
+
+    while (!_ctxCancelled(ctx)) {
+        auto s = _cache->snapshot();
+        msg.set_lat(s.lat_deg);
+        msg.set_lon(s.lon_deg);
+        msg.set_alt(s.alt_amsl_m);  // AMSL (per spec)
+        msg.set_relalt(s.rel_alt_m); // Relative to home
+        if (!writer->Write(msg)) break;
+        IhattysServerService::_sleepMillis(period_ms);
+    }
+    return grpc::Status::OK;
+}
+
+grpc::Status IhattysServerService::TelemetryServiceImpl::subscribeAltitude(
+    grpc::ServerContext* ctx,
+    const ihattys::v1::SubscribeAltitudeRequest*,
+    grpc::ServerWriter<ihattys::v1::Altitude>* writer)
+{
+    // 10 Hz
+    const int period_ms = 100;
+    ihattys::v1::Altitude msg;
+
+    while (!_ctxCancelled(ctx)) {
+        auto s = _cache->snapshot();
+        msg.set_altitudeamslm(static_cast<float>(s.alt_amsl_m));
+        if (!writer->Write(msg)) break;
+        IhattysServerService::_sleepMillis(period_ms);
+    }
+    return grpc::Status::OK;
+}
+
+grpc::Status IhattysServerService::TelemetryServiceImpl::subscribeInAir(
+    grpc::ServerContext* ctx,
+    const ihattys::v1::SubscribeInAirRequest*,
+    grpc::ServerWriter<ihattys::v1::InAirResponse>* writer)
+{
+    // 1 Hz
+    const int period_ms = 1000;
+    ihattys::v1::InAirResponse msg;
+
+    while (!_ctxCancelled(ctx)) {
+        auto s = _cache->snapshot();
+        msg.set_isinair(s.in_air);
+        if (!writer->Write(msg)) break;
+        IhattysServerService::_sleepMillis(period_ms);
+    }
+    return grpc::Status::OK;
+}
+
+grpc::Status IhattysServerService::TelemetryServiceImpl::subscribeAttitudeEuler(
+    grpc::ServerContext* ctx,
+    const ihattys::v1::SubscribeAttitudeEulerRequest*,
+    grpc::ServerWriter<ihattys::v1::AttitudeEulerResponse>* writer)
+{
+    // 50 Hz
+    const int period_ms = 20;
+    ihattys::v1::AttitudeEulerResponse msg;
+
+    while (!_ctxCancelled(ctx)) {
+        auto s = _cache->snapshot();
+        msg.set_rolldeg(s.roll_deg);
+        msg.set_pitchdeg(s.pitch_deg);
+        msg.set_yawdeg(s.yaw_deg);
+        msg.set_timestampus(s.attitude_timestamp_us);
+        if (!writer->Write(msg)) break;
+        IhattysServerService::_sleepMillis(period_ms);
+    }
+    return grpc::Status::OK;
+}
+
+// -------- FlightControllerService --------
+
+grpc::Status IhattysServerService::FlightControllerServiceImpl::subscribeGpsInfo(
+    grpc::ServerContext* ctx,
+    const ihattys::v1::SubscribeGpsInfoRequest*,
+    grpc::ServerWriter<ihattys::v1::GpsInfo>* writer)
+{
+    // 1 Hz
+    const int period_ms = 1000;
+    ihattys::v1::GpsInfo msg;
+
+    while (!_ctxCancelled(ctx)) {
+        auto s = _cache->snapshot();
+        msg.set_numsatellites(s.gps_sat_count);
+        msg.set_level(static_cast<ihattys::v1::GpsSignalLevel>(s.gps_signal_level));
+        qWarning() << "Sending GpsInfo: sats=" << s.gps_sat_count << "level=" << s.gps_signal_level;
+        if (!writer->Write(msg)) break;
+        IhattysServerService::_sleepMillis(period_ms);
+    }
+    return grpc::Status::OK;
+}
+
+// -------- ActionService --------
+
+grpc::Status IhattysServerService::ActionServiceImpl::hold(
+    grpc::ServerContext*,
+    const ihattys::v1::HoldRequest*,
+    ihattys::v1::ActionResult* response)
+{
+    // Not implemented yet per your request (#5)
+    response->set_result(ihattys::v1::ActionResultCode::ACTION_FAILED);
+    response->set_resultstr("Action 'hold' not implemented");
+    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED, "hold not implemented");
+}
+
+// -------- ArmAuthorizerServerService --------
+
+grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::subscribeArmAuthorization(
+    grpc::ServerContext* ctx,
+    const ihattys::v1::SubscribeArmAuthorizationRequest*,
+    grpc::ServerWriter<ihattys::v1::ArmAuthorizationResponse>* writer)
+{
+    // 1 Hz: stream the active system id (0 if unknown)
+    const int period_ms = 1000;
+    ihattys::v1::ArmAuthorizationResponse msg;
+
+    while (!_ctxCancelled(ctx)) {
+        auto s = _cache->snapshot();
+        // You can replace with Vehicle->id() if you prefer; we just expose "known/0"
+        int systemid = std::isfinite(s.lat_deg) ? 1 : 0;
+        msg.set_systemid(systemid);
+        if (!writer->Write(msg)) break;
+        IhattysServerService::_sleepMillis(period_ms);
+    }
+    return grpc::Status::OK;
+}
+
+grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::acceptArmAuthorization(
+    grpc::ServerContext*,
+    const ihattys::v1::AcceptArmAuthorizationRequest* req,
+    ihattys::v1::ArmAuthorizerServerResult* out)
+{
+    int sysid = req->systemid();
+    int valid_s = req->valid_time_s();
+    _state->acceptForSeconds(sysid, valid_s);
+    out->set_result(ihattys::v1::ArmAuthorizerServerResultCode::ARM_AUTH_SUCCESS);
+    return grpc::Status::OK;
+}
+
+grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::rejectArmAuthorization(
+    grpc::ServerContext*,
+    const ihattys::v1::RejectArmAuthorizationRequest* req,
+    ihattys::v1::ArmAuthorizerServerResult* out)
+{
+    _state->reject(req->temporarily(), req->reason(), req->extrainfo());
+    out->set_result(ihattys::v1::ArmAuthorizerServerResultCode::ARM_AUTH_FAILED);
+    return grpc::Status::OK;
+}
+
+// -------- InfoService --------
+
+grpc::Status IhattysServerService::InfoServiceImpl::GetProduct(
+    grpc::ServerContext*,
+    const ihattys::v1::GetProductRequest*,
+    ihattys::v1::Product* reply)
+{
+    // Static for now; you can wire to Vehicle->firmwareType()/brand if needed.
+    reply->set_vendorname("Mostas / QGroundControl");
+    reply->set_productname("Custom GCS");
+    return grpc::Status::OK;
+}
+
+grpc::Status IhattysServerService::InfoServiceImpl::GetIdentification(
+    grpc::ServerContext*,
+    const ihattys::v1::GetIdentificationRequest*,
+    ihattys::v1::Identification* reply)
+{
+    // Fill from your platform identity source if available
+    reply->set_hardware_uid("unknown");
+    reply->set_legacy_uid(0);
+    return grpc::Status::OK;
+}
+
+// =================== IhattysServerService ===================
 
 IhattysServerService::IhattysServerService(QObject* parent)
-    : QObject(parent) {
+    : QObject(parent)
+{
+    // Keep TelemetryCache attached to active vehicle whenever it changes.
+    // Attach to the global MultiVehicleManager instance. Many places in QGC
+    // access the MVM via MultiVehicleManager::instance(), so use that here.
+    auto* mvm = MultiVehicleManager::instance();
+    if (mvm) {
+        connect(mvm, &MultiVehicleManager::activeVehicleChanged, this, [this, mvm]() {
+            _telemetryCache.attachVehicle(mvm->activeVehicle());
+        });
+        _telemetryCache.attachVehicle(mvm->activeVehicle());
+    }
 }
 
-IhattysServerService::~IhattysServerService() {
+IhattysServerService::~IhattysServerService()
+{
     stop();
 }
 
-// =======================================
-// INFO SERVICE (GetProduct / GetIdentification)
-// =======================================
+bool IhattysServerService::start()
+{
+    if (_server) return true;
 
-struct GetProductCall : CallBase {
-    ihattys::InfoService::AsyncService* service;
-    ServerCompletionQueue* cq;
-    ServerContext ctx;
-    ihattys::GetProductRequest req;
-    ihattys::GetProductResponse resp;
-    ServerAsyncResponseWriter<ihattys::GetProductResponse> responder;
-    enum { CREATE, PROCESS, FINISH } state{CREATE};
-    IhattysServerService::VehicleState* st;
+    _coreSvc     = std::make_unique<CoreServiceImpl>(&_telemetryCache);
+    _telemetrySvc= std::make_unique<TelemetryServiceImpl>(&_telemetryCache);
+    _fcSvc       = std::make_unique<FlightControllerServiceImpl>(&_telemetryCache);
+    _actionSvc   = std::make_unique<ActionServiceImpl>();
+    _armSvc      = std::make_unique<ArmAuthorizerServerServiceImpl>(&_armAuth, &_telemetryCache);
+    _infoSvc     = std::make_unique<InfoServiceImpl>(&_telemetryCache);
 
-    GetProductCall(ihattys::InfoService::AsyncService* s, ServerCompletionQueue* c, IhattysServerService::VehicleState* _st)
-        : service(s), cq(c), responder(&ctx), st(_st) { proceed(true); }
+    grpc::ServerBuilder builder;
+    builder.AddListeningPort(_listenAddress, grpc::InsecureServerCredentials());
+    builder.RegisterService(_coreSvc.get());
+    builder.RegisterService(_telemetrySvc.get());
+    builder.RegisterService(_fcSvc.get());
+    builder.RegisterService(_actionSvc.get());
+    builder.RegisterService(_armSvc.get());
+    builder.RegisterService(_infoSvc.get());
 
-    void proceed(bool ok) override {
-        qCWarning(IhattysServerLog) << "[InfoService::GetProduct] proceed ok=" << ok << " state=" << state;
-        if (state == CREATE) {
-            qCWarning(IhattysServerLog) << "[InfoService::GetProduct] Request registration";
-            state = PROCESS;
-            service->RequestGetProduct(&ctx, &req, &responder, cq, cq, this);
-        } else if (state == PROCESS) {
-            qCWarning(IhattysServerLog) << "[InfoService::GetProduct] PROCESS -> re-arm and respond";
-            // re-arm
-            new GetProductCall(service, cq, st);
+    _server = builder.BuildAndStart();
+    if (!_server) return false;
 
-                    // Fill from current state
-            resp.mutable_info_result()->set_result(ihattys::InfoResult::RESULT_SUCCESS);
-            resp.mutable_info_result()->set_result_str("OK");
-            auto* p = resp.mutable_product();
-            p->set_vendor_id(0);
-            p->set_vendor_name(st->vendorName);
-            p->set_product_id(0);
-            p->set_product_name(st->productName);
-
-            state = FINISH;
-            qCWarning(IhattysServerLog) << "[InfoService::GetProduct] FINISH -> responder.Finish(Status::OK)";
-            responder.Finish(resp, Status::OK, this);
-        } else {
-            qCWarning(IhattysServerLog) << "[InfoService::GetProduct] DELETE call object";
-            delete this;
-        }
-    }
-};
-
-struct GetIdentificationCall : CallBase {
-    ihattys::InfoService::AsyncService* service;
-    ServerCompletionQueue* cq;
-    ServerContext ctx;
-    ihattys::GetIdentificationRequest req;
-    ihattys::GetIdentificationResponse resp;
-    ServerAsyncResponseWriter<ihattys::GetIdentificationResponse> responder;
-    enum { CREATE, PROCESS, FINISH } state{CREATE};
-    IhattysServerService::VehicleState* st;
-
-    GetIdentificationCall(ihattys::InfoService::AsyncService* s, ServerCompletionQueue* c, IhattysServerService::VehicleState* _st)
-        : service(s), cq(c), responder(&ctx), st(_st) { proceed(true); }
-
-    void proceed(bool ok) override {
-        qCWarning(IhattysServerLog) << "[InfoService::GetIdentification] proceed ok=" << ok << " state=" << state;
-        if (state == CREATE) {
-            qCWarning(IhattysServerLog) << "[InfoService::GetIdentification] Request registration";
-            state = PROCESS;
-            service->RequestGetIdentification(&ctx, &req, &responder, cq, cq, this);
-        } else if (state == PROCESS) {
-            qCWarning(IhattysServerLog) << "[InfoService::GetIdentification] PROCESS -> re-arm and respond";
-            new GetIdentificationCall(service, cq, st);
-
-            resp.mutable_info_result()->set_result(ihattys::InfoResult::RESULT_SUCCESS);
-            resp.mutable_info_result()->set_result_str("OK");
-            auto* id = resp.mutable_identification();
-            id->set_hardware_uid(st->hardwareUid);
-            id->set_legacy_uid(0);
-
-            state = FINISH;
-            qCWarning(IhattysServerLog) << "[InfoService::GetIdentification] FINISH -> responder.Finish(Status::OK)";
-            responder.Finish(resp, Status::OK, this);
-        } else {
-            qCWarning(IhattysServerLog) << "[InfoService::GetIdentification] DELETE call object";
-            delete this;
-        }
-    }
-};
-
-// =======================================
-// CORE SERVICE (subscribeConnectionState)
-// =======================================
-
-struct SubscribeConnectionStateCall : CallBase {
-    ihattys::CoreService::AsyncService* service;
-    ServerCompletionQueue* cq;
-    ServerContext ctx;
-    ihattys::SubscribeConnectionStateRequest req;
-    ServerAsyncWriter<ihattys::ConnectionStateResponse> writer;
-    enum { CREATE, WRITE, FINISH } state{CREATE};
-    grpc::Alarm alarm;
-    IhattysServerService::VehicleState* st;
-
-    SubscribeConnectionStateCall(ihattys::CoreService::AsyncService* s, ServerCompletionQueue* c, IhattysServerService::VehicleState* _st)
-        : service(s), cq(c), writer(&ctx), st(_st) { proceed(true); }
-
-    void proceed(bool ok) override {
-        qCWarning(IhattysServerLog) << "[CoreService::subscribeConnectionState] proceed ok=" << ok << " state=" << state;
-        if (state == CREATE) {
-            qCWarning(IhattysServerLog) << "[CoreService::subscribeConnectionState] Request registration";
-            state = WRITE;
-            service->RequestSubscribeConnectionState(&ctx, &req, &writer, cq, cq, this);
-        } else if (state == WRITE) {
-            qCWarning(IhattysServerLog) << "[CoreService::subscribeConnectionState] WRITE -> spawn next and push sample";
-            // re-arm new call for next subscriber
-            new SubscribeConnectionStateCall(service, cq, st);
-
-                    // Periodic push loop using Alarm ticks (1 Hz is sufficient)
-            ihattys::ConnectionStateResponse resp;
-            resp.set_isconnected(st->connected.load());
-            qCWarning(IhattysServerLog) << "[CoreService::subscribeConnectionState] writer.Write(isConnected="
-                                        << resp.isconnected() << ")";
-            writer.Write(resp, this);
-            // schedule next tick
-            alarm.Set(
-                cq,
-                std::chrono::system_clock::now() + std::chrono::milliseconds(kHz1),
-                this);
-
-        } else {
-            qCWarning(IhattysServerLog) << "[CoreService::subscribeConnectionState] DELETE call object";
-            delete this;
-        }
-    }
-};
-
-// =======================================
-// TELEMETRY SERVICE (server-side streaming)
-// =======================================
-
-template<typename RequestT, typename ResponseT, typename BuilderFn>
-struct PeriodicStreamCall : CallBase {
-    using AsyncSvcT = ihattys::TelemetryService::AsyncService;
-
-    AsyncSvcT* service;
-    ServerCompletionQueue* cq;
-    ServerContext ctx;
-    RequestT req;
-    ServerAsyncWriter<ResponseT> writer;
-    enum { CREATE, WRITE, FINISH } state{CREATE};
-    grpc::Alarm alarm;
-    IhattysServerService::VehicleState* st;
-    BuilderFn build;
-    int periodMs; // 100 = 10Hz, 50 = 20Hz, 20 = 50Hz, 10 = 100Hz
-
-    PeriodicStreamCall(AsyncSvcT* s, ServerCompletionQueue* c,
-                       IhattysServerService::VehicleState* _st, BuilderFn b, int ms)
-        : service(s), cq(c), writer(&ctx), st(_st), build(b), periodMs(ms) { proceed(true); }
-
-    void proceed(bool ok) override {
-        qCWarning(IhattysServerLog) << "[TelemetryService::PeriodicStream] proceed ok=" << ok << " state=" << state
-                                    << " periodMs=" << periodMs;
-        if (state == CREATE) {
-            qCWarning(IhattysServerLog) << "[TelemetryService::PeriodicStream] CREATE (caller should have registered)";
-            state = WRITE;
-            // The concrete Request method is bound by the caller through build usage.
-            // We'll be registered by the concrete wrapper below.
-        } else if (state == WRITE) {
-            ResponseT resp;
-            build(*st, resp);
-            qCWarning(IhattysServerLog) << "[TelemetryService::PeriodicStream] writer.Write(sample)";
-            writer.Write(resp, this);
-            alarm.Set(
-                cq,
-                std::chrono::system_clock::now() + std::chrono::milliseconds(periodMs),
-                this);
-
-        } else {
-            qCWarning(IhattysServerLog) << "[TelemetryService::PeriodicStream] DELETE call object";
-            delete this;
-        }
-    }
-};
-
-// Concrete wrappers per Telemetry RPC
-struct SubscribePositionCall : CallBase {
-    ihattys::TelemetryService::AsyncService* service; ServerCompletionQueue* cq; ServerContext ctx;
-    ihattys::SubscribePositionRequest req; ServerAsyncWriter<ihattys::PositionResponse> writer;
-    grpc::Alarm alarm; IhattysServerService::VehicleState* st; bool primed{false};
-    SubscribePositionCall(ihattys::TelemetryService::AsyncService* s, ServerCompletionQueue* c, IhattysServerService::VehicleState* _st)
-        : service(s), cq(c), writer(&ctx), st(_st) { proceed(true); }
-    void proceed(bool ok) override {
-        qCWarning(IhattysServerLog) << "[TelemetryService::subscribePosition] proceed ok=" << ok
-                                    << " state=" << (primed ? "STREAM" : "CREATE");
-        if (!primed) {
-            primed = true;
-            qCWarning(IhattysServerLog) << "[TelemetryService::subscribePosition] Request registration";
-            service->RequestSubscribePosition(&ctx, &req, &writer, cq, cq, this);
-            return;
-        }
-        // Spawn next handler and stream at 10Hz
-        qCWarning(IhattysServerLog) << "[TelemetryService::subscribePosition] STREAM -> spawn next and write";
-        new SubscribePositionCall(service, cq, st);
-        ihattys::PositionResponse r;
-        auto* p = r.mutable_position();
-        p->set_latitudedeg(st->lat.load());
-        p->set_longitudedeg(st->lon.load());
-        p->set_absolutealtitudem(st->alt_amsl.load());
-        p->set_relativealtitudem(st->alt_rel.load());
-        qCWarning(IhattysServerLog) << "[TelemetryService::subscribePosition] writer.Write(lat=" << p->latitudedeg()
-                                    << ", lon=" << p->longitudedeg() << ")";
-        writer.Write(r, this);
-        alarm.Set(
-            cq,
-            std::chrono::system_clock::now() + std::chrono::milliseconds(k10Hz),
-            this);
-    }
-};
-
-struct SubscribeAltitudeCall : CallBase {
-    ihattys::TelemetryService::AsyncService* service; ServerCompletionQueue* cq; ServerContext ctx;
-    ihattys::SubscribeAltitudeRequest req; ServerAsyncWriter<ihattys::AltitudeResponse> writer;
-    grpc::Alarm alarm; IhattysServerService::VehicleState* st; bool primed{false};
-    SubscribeAltitudeCall(ihattys::TelemetryService::AsyncService* s, ServerCompletionQueue* c, IhattysServerService::VehicleState* _st)
-        : service(s), cq(c), writer(&ctx), st(_st) { proceed(true); }
-    void proceed(bool ok) override {
-        qCWarning(IhattysServerLog) << "[TelemetryService::subscribeAltitude] proceed ok=" << ok
-                                    << " state=" << (primed ? "STREAM" : "CREATE");
-        if (!primed) {
-            primed = true;
-            qCWarning(IhattysServerLog) << "[TelemetryService::subscribeAltitude] Request registration";
-            service->RequestSubscribeAltitude(&ctx, &req, &writer, cq, cq, this);
-            return;
-        }
-        qCWarning(IhattysServerLog) << "[TelemetryService::subscribeAltitude] STREAM -> spawn next and write";
-        new SubscribeAltitudeCall(service, cq, st);
-        ihattys::AltitudeResponse r;
-        auto* a = r.mutable_altitude();
-        a->set_altitudeamslm(st->alt_amsl.load());
-        a->set_relativealtitudem(st->alt_rel.load());
-        qCWarning(IhattysServerLog) << "[TelemetryService::subscribeAltitude] writer.Write(amsl=" << a->altitudeamslm()
-                                    << ", rel=" << a->relativealtitudem() << ")";
-        writer.Write(r, this);
-        alarm.Set(
-            cq,
-            std::chrono::system_clock::now() + std::chrono::milliseconds(k10Hz),
-            this);
-    }
-};
-
-struct SubscribeInAirCall : CallBase {
-    ihattys::TelemetryService::AsyncService* service; ServerCompletionQueue* cq; ServerContext ctx;
-    ihattys::SubscribeInAirRequest req; ServerAsyncWriter<ihattys::InAirResponse> writer;
-    grpc::Alarm alarm; IhattysServerService::VehicleState* st; bool primed{false};
-    SubscribeInAirCall(ihattys::TelemetryService::AsyncService* s, ServerCompletionQueue* c, IhattysServerService::VehicleState* _st)
-        : service(s), cq(c), writer(&ctx), st(_st) { proceed(true); }
-    void proceed(bool ok) override {
-        qCWarning(IhattysServerLog) << "[TelemetryService::subscribeInAir] proceed ok=" << ok
-                                    << " state=" << (primed ? "STREAM" : "CREATE");
-        if (!primed) {
-            primed = true;
-            qCWarning(IhattysServerLog) << "[TelemetryService::subscribeInAir] Request registration";
-            service->RequestSubscribeInAir(&ctx, &req, &writer, cq, cq, this);
-            return;
-        }
-        qCWarning(IhattysServerLog) << "[TelemetryService::subscribeInAir] STREAM -> spawn next and write";
-        new SubscribeInAirCall(service, cq, st);
-        ihattys::InAirResponse r;
-        r.set_isinair(st->inAir.load());
-        qCWarning(IhattysServerLog) << "[TelemetryService::subscribeInAir] writer.Write(isInAir=" << r.isinair() << ")";
-        writer.Write(r, this);
-        alarm.Set(
-            cq,
-            std::chrono::system_clock::now() + std::chrono::milliseconds(kHz1),
-            this);
-    }
-};
-
-struct SubscribeAttitudeEulerCall : CallBase {
-    ihattys::TelemetryService::AsyncService* service; ServerCompletionQueue* cq; ServerContext ctx;
-    ihattys::SubscribeAttitudeEulerRequest req; ServerAsyncWriter<ihattys::AttitudeEulerResponse> writer;
-    grpc::Alarm alarm; IhattysServerService::VehicleState* st; bool primed{false};
-    SubscribeAttitudeEulerCall(ihattys::TelemetryService::AsyncService* s, ServerCompletionQueue* c, IhattysServerService::VehicleState* _st)
-        : service(s), cq(c), writer(&ctx), st(_st) { proceed(true); }
-    void proceed(bool ok) override {
-        qCWarning(IhattysServerLog) << "[TelemetryService::subscribeAttitudeEuler] proceed ok=" << ok
-                                    << " state=" << (primed ? "STREAM" : "CREATE");
-        if (!primed) {
-            primed = true;
-            qCWarning(IhattysServerLog) << "[TelemetryService::subscribeAttitudeEuler] Request registration";
-            service->RequestSubscribeAttitudeEuler(&ctx, &req, &writer, cq, cq, this);
-            return;
-        }
-        qCWarning(IhattysServerLog) << "[TelemetryService::subscribeAttitudeEuler] STREAM -> spawn next and write";
-        new SubscribeAttitudeEulerCall(service, cq, st);
-        ihattys::AttitudeEulerResponse r;
-        auto* e = r.mutable_eulerangle();
-        e->set_rolldeg(st->roll.load());
-        e->set_pitchdeg(st->pitch.load());
-        e->set_yawdeg(st->yaw.load());
-        e->set_timestampus(nowUs());
-        qCWarning(IhattysServerLog) << "[TelemetryService::subscribeAttitudeEuler] writer.Write(roll=" << e->rolldeg()
-                                    << ", pitch=" << e->pitchdeg() << ", yaw=" << e->yawdeg() << ")";
-        writer.Write(r, this);
-        alarm.Set(
-            cq,
-            std::chrono::system_clock::now() + std::chrono::milliseconds(k50Hz),
-            this);
-    }
-};
-
-// =======================================
-// FLIGHT CONTROLLER SERVICE (subscribeGpsInfo)
-// =======================================
-
-struct SubscribeGpsInfoCall : CallBase {
-    ihattys::FlightControllerService::AsyncService* service; ServerCompletionQueue* cq; ServerContext ctx;
-    ihattys::SubscribeGpsInfoRequest req; ServerAsyncWriter<ihattys::GpsInfoResponse> writer;
-    grpc::Alarm alarm; IhattysServerService::VehicleState* st; bool primed{false};
-    SubscribeGpsInfoCall(ihattys::FlightControllerService::AsyncService* s, ServerCompletionQueue* c, IhattysServerService::VehicleState* _st)
-        : service(s), cq(c), writer(&ctx), st(_st) { proceed(true); }
-    void proceed(bool ok) override {
-        qCWarning(IhattysServerLog) << "[FlightControllerService::subscribeGpsInfo] proceed ok=" << ok
-                                    << " state=" << (primed ? "STREAM" : "CREATE");
-        if (!primed) {
-            primed = true;
-            qCWarning(IhattysServerLog) << "[FlightControllerService::subscribeGpsInfo] Request registration";
-            service->RequestSubscribeGpsInfo(&ctx, &req, &writer, cq, cq, this);
-            return;
-        }
-        qCWarning(IhattysServerLog) << "[FlightControllerService::subscribeGpsInfo] STREAM -> spawn next and write";
-        new SubscribeGpsInfoCall(service, cq, st);
-        ihattys::GpsInfoResponse r;
-        auto* g = r.mutable_gpsinfo();
-        g->set_numsatellites(st->numSat.load());
-        g->set_level(static_cast<ihattys::GpsSignalLevel>(st->gpsLevel.load()));
-        qCWarning(IhattysServerLog) << "[FlightControllerService::subscribeGpsInfo] writer.Write(numSat=" << g->numsatellites()
-                                    << ", level=" << g->level() << ")";
-        writer.Write(r, this);
-        alarm.Set(
-            cq,
-            std::chrono::system_clock::now() + std::chrono::milliseconds(kHz1),
-            this);
-    }
-};
-
-// =======================================
-// ACTION SERVICE (hold)
-// =======================================
-
-struct HoldCall : CallBase {
-    ihattys::ActionService::AsyncService* service; ServerCompletionQueue* cq; ServerContext ctx;
-    ihattys::HoldRequest req; ihattys::HoldResponse resp; ServerAsyncResponseWriter<ihattys::HoldResponse> responder;
-    enum { CREATE, PROCESS, FINISH } state{CREATE};
-    HoldCall(ihattys::ActionService::AsyncService* s, ServerCompletionQueue* c)
-        : service(s), cq(c), responder(&ctx) { proceed(true); }
-    void proceed(bool ok) override {
-        qCWarning(IhattysServerLog) << "[ActionService::hold] proceed ok=" << ok << " state=" << state;
-        if (state == CREATE) {
-            qCWarning(IhattysServerLog) << "[ActionService::hold] Request registration";
-            state = PROCESS;
-            service->RequestHold(&ctx, &req, &responder, cq, cq, this);
-        } else if (state == PROCESS) {
-            qCWarning(IhattysServerLog) << "[ActionService::hold] PROCESS -> re-arm and respond";
-            new HoldCall(service, cq);
-            // TODO: invoke your FCU "HOLD" or "Pause" here and report result
-            resp.mutable_action_result()->set_result(ihattys::ActionResult::RESULT_SUCCESS);
-            resp.mutable_action_result()->set_result_str("Hold executed");
-            state = FINISH;
-            qCWarning(IhattysServerLog) << "[ActionService::hold] FINISH -> responder.Finish(Status::OK)";
-            responder.Finish(resp, Status::OK, this);
-        } else {
-            qCWarning(IhattysServerLog) << "[ActionService::hold] DELETE call object";
-            delete this;
-        }
-    }
-};
-
-// =======================================
-// ARM AUTHORIZER SERVER SERVICE (subscribe + accept/reject)
-// =======================================
-
-struct SubscribeArmAuthorizationCall : CallBase {
-    ihattys::ArmAuthorizerServerService::AsyncService* service; ServerCompletionQueue* cq; ServerContext ctx;
-    ihattys::SubscribeArmAuthorizationRequest req; ServerAsyncWriter<ihattys::ArmAuthorizationResponse> writer;
-    grpc::Alarm alarm; IhattysServerService::VehicleState* st; bool primed{false};
-    SubscribeArmAuthorizationCall(ihattys::ArmAuthorizerServerService::AsyncService* s, ServerCompletionQueue* c, IhattysServerService::VehicleState* _st)
-        : service(s), cq(c), writer(&ctx), st(_st) { proceed(true); }
-    void proceed(bool ok) override {
-        qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::subscribeArmAuthorization] proceed ok=" << ok
-                                    << " state=" << (primed ? "STREAM" : "CREATE");
-        if (!primed) {
-            primed = true;
-            qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::subscribeArmAuthorization] Request registration";
-            service->RequestSubscribeArmAuthorization(&ctx, &req, &writer, cq, cq, this);
-            return;
-        }
-        qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::subscribeArmAuthorization] STREAM -> spawn next and write";
-        new SubscribeArmAuthorizationCall(service, cq, st);
-        ihattys::ArmAuthorizationResponse r;
-        // Populate minimum context (e.g., system id). If your proto expects fields, set them here.
-        r.set_systemid(1); // TODO wire to your FCU
-        qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::subscribeArmAuthorization] writer.Write(systemId=" << r.systemid() << ")";
-        writer.Write(r, this);
-        alarm.Set(
-            cq,
-            std::chrono::system_clock::now() + std::chrono::milliseconds(kHz1),
-            this);
-    }
-};
-
-struct RejectArmAuthorizationCall : CallBase {
-    ihattys::ArmAuthorizerServerService::AsyncService* service; ServerCompletionQueue* cq; ServerContext ctx;
-    ihattys::RejectArmAuthorizationRequest req; ihattys::RejectArmAuthorizationResponse resp;
-    ServerAsyncResponseWriter<ihattys::RejectArmAuthorizationResponse> responder;
-    enum { CREATE, PROCESS, FINISH } state{CREATE};
-    RejectArmAuthorizationCall(ihattys::ArmAuthorizerServerService::AsyncService* s, ServerCompletionQueue* c)
-        : service(s), cq(c), responder(&ctx) { proceed(true); }
-    void proceed(bool ok) override {
-        qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::rejectArmAuthorization] proceed ok=" << ok << " state=" << state;
-        if (state == CREATE) {
-            qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::rejectArmAuthorization] Request registration";
-            state = PROCESS;
-            service->RequestRejectArmAuthorization(&ctx, &req, &responder, cq, cq, this);
-        } else if (state == PROCESS) {
-            qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::rejectArmAuthorization] PROCESS -> re-arm and respond";
-            new RejectArmAuthorizationCall(service, cq);
-            // TODO: force arming disallowed in your FCU
-            auto* r = resp.mutable_result();
-            r->set_result(ihattys::ArmAuthorizerServerResult::RESULT_SUCCESS);
-            r->set_result_str("Arming rejected");
-            state = FINISH;
-            qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::rejectArmAuthorization] FINISH -> responder.Finish(Status::OK)";
-            responder.Finish(resp, Status::OK, this);
-        } else {
-            qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::rejectArmAuthorization] DELETE call object";
-            delete this;
-        }
-    }
-};
-
-struct AcceptArmAuthorizationCall : CallBase {
-    ihattys::ArmAuthorizerServerService::AsyncService* service; ServerCompletionQueue* cq; ServerContext ctx;
-    ihattys::AcceptArmAuthorizationRequest req; ihattys::AcceptArmAuthorizationResponse resp;
-    ServerAsyncResponseWriter<ihattys::AcceptArmAuthorizationResponse> responder;
-    IhattysServerService::VehicleState* st;
-    enum { CREATE, PROCESS, FINISH } state{CREATE};
-    AcceptArmAuthorizationCall(ihattys::ArmAuthorizerServerService::AsyncService* s, ServerCompletionQueue* c, IhattysServerService::VehicleState* _st)
-        : service(s), cq(c), responder(&ctx), st(_st) { proceed(true); }
-    void proceed(bool ok) override {
-        qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::acceptArmAuthorization] proceed ok=" << ok << " state=" << state;
-        if (state == CREATE) {
-            qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::acceptArmAuthorization] Request registration";
-            state = PROCESS;
-            service->RequestAcceptArmAuthorization(&ctx, &req, &responder, cq, cq, this);
-        } else if (state == PROCESS) {
-            qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::acceptArmAuthorization] PROCESS -> re-arm and respond";
-            new AcceptArmAuthorizationCall(service, cq, st);
-            // Record arm validity window for your arming gate
-            int32_t validSec = req.valid_time_s();
-            st->armValidUntilUs.store(nowUs() + static_cast<int64_t>(validSec) * 1000000LL);
-            auto* r = resp.mutable_result();
-            r->set_result(ihattys::ArmAuthorizerServerResult::RESULT_SUCCESS);
-            r->set_result_str("Arming accepted");
-            state = FINISH;
-            qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::acceptArmAuthorization] FINISH -> responder.Finish(Status::OK)";
-            responder.Finish(resp, Status::OK, this);
-        } else {
-            qCWarning(IhattysServerLog) << "[ArmAuthorizerServerService::acceptArmAuthorization] DELETE call object";
-            delete this;
-        }
-    }
-};
-
-// =======================================
-// START / STOP
-// =======================================
-
-bool IhattysServerService::start() {
-    if (_running.load()) {
-        qCWarning(IhattysServerLog) << "IhattysServerService already running";
-        return true;
-    }
-
-    try {
-        ServerBuilder builder;
-
-                // Listen on configured address (127.0.0.1:50051 by default)
-        qCWarning(IhattysServerLog) << "Adding listening port:" << _listenAddress;
-        builder.AddListeningPort(_listenAddress.toStdString(), grpc::InsecureServerCredentials());
-
-                // Register async services
-        _svcInfo     = std::make_unique<ihattys::InfoService::AsyncService>();
-        _svcCore     = std::make_unique<ihattys::CoreService::AsyncService>();
-        _svcTelemetry= std::make_unique<ihattys::TelemetryService::AsyncService>();
-        _svcFlightCtl= std::make_unique<ihattys::FlightControllerService::AsyncService>();
-        _svcAction   = std::make_unique<ihattys::ActionService::AsyncService>();
-        _svcArmAuth  = std::make_unique<ihattys::ArmAuthorizerServerService::AsyncService>();
-
-        qCWarning(IhattysServerLog) << "Registering services";
-        builder.RegisterService(_svcInfo.get());
-        builder.RegisterService(_svcCore.get());
-        builder.RegisterService(_svcTelemetry.get());
-        builder.RegisterService(_svcFlightCtl.get());
-        builder.RegisterService(_svcAction.get());
-        builder.RegisterService(_svcArmAuth.get());
-
-        _cq = builder.AddCompletionQueue();
-        qCWarning(IhattysServerLog) << "Building and starting gRPC server";
-        _server = builder.BuildAndStart();
-        if (!_server) {
-            qCWarning(IhattysServerLog) << "Failed to start gRPC server";
-            _svcInfo.reset(); _svcCore.reset(); _svcTelemetry.reset(); _svcFlightCtl.reset(); _svcAction.reset(); _svcArmAuth.reset();
-            _cq.reset();
-            return false;
-        }
-
-        _running.store(true);
-        qCWarning(IhattysServerLog) << "Starting CQ thread";
-        _cqThread = std::thread(&IhattysServerService::_cqThreadMain, this);
-
-        qCWarning(IhattysServerLog) << "IHATTYS gRPC server started on" << _listenAddress;
-        emit started();
-        return true;
-    } catch (const std::exception& e) {
-        qCWarning(IhattysServerLog) << "Exception starting gRPC server:" << e.what();
-        return false;
-    }
+    // Run server in a dedicated thread; synchronous services block here.
+    _serverThread = std::thread([this]() {
+        emit serverStarted();
+        _server->Wait();
+        emit serverStopped();
+    });
+    return true;
 }
 
-void IhattysServerService::stop() {
-    if (!_running.exchange(false)) {
-        return;
-    }
-    qCWarning(IhattysServerLog) << "Stopping IHATTYS gRPC server";
-
+void IhattysServerService::stop()
+{
     if (_server) {
-        qCWarning(IhattysServerLog) << "Server.Shutdown()";
         _server->Shutdown();
     }
-    if (_cq) {
-        qCWarning(IhattysServerLog) << "CQ.Shutdown()";
-        _cq->Shutdown();
+    if (_serverThread.joinable()) {
+        _serverThread.join();
     }
-    if (_cqThread.joinable()) {
-        qCWarning(IhattysServerLog) << "Joining CQ thread";
-        _cqThread.join();
-    }
-
-    qCWarning(IhattysServerLog) << "Resetting services and CQ";
-    _svcInfo.reset();
-    _svcCore.reset();
-    _svcTelemetry.reset();
-    _svcFlightCtl.reset();
-    _svcAction.reset();
-    _svcArmAuth.reset();
-
-    _cq.reset();
     _server.reset();
-
-    qCWarning(IhattysServerLog) << "IHATTYS gRPC server stopped";
-    emit stopped();
+    _coreSvc.reset();
+    _telemetrySvc.reset();
+    _fcSvc.reset();
+    _actionSvc.reset();
+    _armSvc.reset();
+    _infoSvc.reset();
 }
 
-void IhattysServerService::_cqThreadMain() {
-    qCWarning(IhattysServerLog) << "[CQThread] Priming RPC handlers";
-
-            // Prime one handler per RPC
-    new GetProductCall(_svcInfo.get(), _cq.get(), &_state);
-    new GetIdentificationCall(_svcInfo.get(), _cq.get(), &_state);
-
-    new SubscribeConnectionStateCall(_svcCore.get(), _cq.get(), &_state);
-
-    new SubscribePositionCall(_svcTelemetry.get(), _cq.get(), &_state);
-    new SubscribeAltitudeCall(_svcTelemetry.get(), _cq.get(), &_state);
-    new SubscribeInAirCall(_svcTelemetry.get(), _cq.get(), &_state);
-    new SubscribeAttitudeEulerCall(_svcTelemetry.get(), _cq.get(), &_state);
-
-    new SubscribeGpsInfoCall(_svcFlightCtl.get(), _cq.get(), &_state);
-
-    new HoldCall(_svcAction.get(), _cq.get());
-
-    new SubscribeArmAuthorizationCall(_svcArmAuth.get(), _cq.get(), &_state);
-    new RejectArmAuthorizationCall(_svcArmAuth.get(), _cq.get());
-    new AcceptArmAuthorizationCall(_svcArmAuth.get(), _cq.get(), &_state);
-
-    void* tag = nullptr;
-    bool ok = false;
-
-    while (_cq->Next(&tag, &ok)) {
-        qCWarning(IhattysServerLog) << "[CQThread] Next(tag=" << tag << ", ok=" << ok << ")";
-        if (!ok || tag == nullptr) {
-            qCWarning(IhattysServerLog) << "[CQThread] Skipping dispatch for tag=" << tag << " ok=" << ok;
-            continue;
-        }
-        qCWarning(IhattysServerLog) << "[CQThread] Dispatching tag=" << tag;
-        static_cast<CallBase*>(tag)->proceed(ok);
-    }
-
-    qCWarning(IhattysServerLog) << "CQ thread exiting";
+void IhattysServerService::attachActiveVehicle(Vehicle* v) {
+    _telemetryCache.attachVehicle(v);
 }
+
+void IhattysServerService::_sleepMillis(int ms)
+{
+    std::this_thread::sleep_for(std::chrono::milliseconds(ms));
+}
+
+
+

@@ -4,6 +4,8 @@ import java.io.File;
 import java.util.List;
 import java.lang.reflect.Method;
 
+import android.view.WindowInsets;
+import android.view.WindowInsetsController;
 import android.content.Context;
 import android.content.Intent;
 import android.content.pm.PackageManager;
@@ -47,6 +49,21 @@ public class QGCActivity extends QtActivity {
         return m_instance;
     }
 
+    private void goImmersive() {
+        if (Build.VERSION.SDK_INT >= 30) {
+            // Modern way
+            getWindow().setDecorFitsSystemWindows(false); // content goes edge-to-edge
+
+            final WindowInsetsController c = getWindow().getInsetsController();
+            if (c != null) {
+                c.hide(WindowInsets.Type.statusBars() | WindowInsets.Type.navigationBars());
+                c.setSystemBarsBehavior(
+                    WindowInsetsController.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+                );
+            }
+        }
+    }
+
     @Override
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
@@ -55,8 +72,15 @@ public class QGCActivity extends QtActivity {
         acquireWakeLock();
         keepScreenOn();
         setupMulticastLock();
+        goImmersive(); 
 
         QGCUsbSerialManager.initialize(this);
+    }
+
+    @Override
+    public void onWindowFocusChanged(boolean hasFocus) {
+        super.onWindowFocusChanged(hasFocus);
+        if (hasFocus) goImmersive(); // <-- re-apply when regaining focus
     }
 
     @Override

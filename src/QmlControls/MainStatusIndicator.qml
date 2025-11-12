@@ -386,11 +386,21 @@ RowLayout {
                 headingDescription: qsTr("Force arming bypasses pre-arm checks. Use with caution.")
                 visible:            _activeVehicle && !_armed
 
+                property var _extAllowVehicle: _activeVehicle
+                property var _extQGCPal: qgcPal
+
                 QGCCheckBoxSlider {
                     Layout.fillWidth:   true
                     text:               qsTr("Allow Force Arm")
                     checked:            false
                     onClicked:          _allowForceArm = true
+                }
+                // Show external arming status if present
+                Label {
+                    visible: _extAllowVehicle && _extAllowVehicle.healthAndArmingCheckReport.externalArmingPresent && !_extAllowVehicle.healthAndArmingCheckReport.externalArmingAllowed
+                    text: qsTr("External arming denied") + (_extAllowVehicle.healthAndArmingCheckReport.externalArmingMessage ? (": " + _extAllowVehicle.healthAndArmingCheckReport.externalArmingMessage) : "")
+                    color: _extQGCPal.colorRed
+                    wrapMode: Text.Wrap
                 }
             }
 

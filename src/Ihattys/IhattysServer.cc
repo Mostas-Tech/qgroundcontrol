@@ -34,6 +34,13 @@ void TelemetryCache::attachVehicle(Vehicle* v)
     _vehicle = v;
 }
 
+void TelemetryCache::attachActiveVehicle(Vehicle* v)
+{
+    // For now simply delegate to attachVehicle. Kept as a separate
+    // entrypoint for clarity and future platform-specific handling.
+    attachVehicle(v);
+}
+
 void TelemetryCache::detachVehicle()
 {
     QWriteLocker l(&_lock);
@@ -86,10 +93,21 @@ void TelemetryCache::_pollFromVehicle()
     _snap.attitude_timestamp_us = QDateTime::currentMSecsSinceEpoch() * 1000LL;
 
     // GPS
-    // If you have a Fact for sat count, use it; otherwise, v->satelliteCount()
+    // Prefer the FactGroup count fact if available; otherwise fall back to
+    // vehicle helper APIs. Vehicle::gpsFactGroup() returns a FactGroup which
+    // is actually a VehicleGPSFactGroup instance, so cast and use the
+    // public count() accessor.
     int sats = 0;
-    _snap.gps_sat_count = 0;
+    if (auto fg = v->gpsFactGroup()) {
+        if (auto gps = static_cast<VehicleGPSFactGroup*>(fg)) {
+            if (gps->count()) {
+                sats = gps->count()->rawValue().toInt();
+            }
+        }
+    }
+    _snap.gps_sat_count = sats;
     _recomputeGpsSignalLevel();
+    _snap.vehicle_id = v->id(); //TODO: Add a Lue Script to vehicle set product vehicle company informations than add a param load in here
 }
 
 // =================== ArmAuthState ===================
@@ -122,15 +140,25 @@ ArmAuthState::Decision ArmAuthState::current() const
     return _decision;
 }
 
-bool ArmAuthState::isArmAuthorizedNow(int systemId) const
+bool ArmAuthState::isArmAuthorizedNow() const
 {
+    // If we have a telemetry cache wired, use its snapshot to get the active
+    // vehicle id. Otherwise treat as unknown (no matching id).
+    TelemetrySnapshot snap;
+    if (_cache) {
+        snap = _cache->snapshot();
+    }
+
     std::lock_guard<std::mutex> lk(_mx);
     auto now = std::chrono::steady_clock::now();
     if (_decision.type == Decision::Accepted) {
-        return _decision.system_id == systemId && now <= _decision.valid_until;
+        // Authorized only if the accepted system id matches the active vehicle id
+        // and the acceptance hasn't expired.
+        return _decision.system_id == snap.vehicle_id && now <= _decision.valid_until;
     }
+    // Rejected/Unknown => not authorized
     if (_decision.type == Decision::Rejected) {
-        // Reject rules: if temporary and expired, treat as unknown (not authorized)
+        // If temporary and expired, it's effectively unknown -> not authorized
         if (_decision.temporary_reject && now > _decision.valid_until) {
             return false;
         }
@@ -261,7 +289,6 @@ grpc::Status IhattysServerService::FlightControllerServiceImpl::subscribeGpsInfo
         auto s = _cache->snapshot();
         msg.set_numsatellites(s.gps_sat_count);
         msg.set_level(static_cast<ihattys::v1::GpsSignalLevel>(s.gps_signal_level));
-        qWarning() << "Sending GpsInfo: sats=" << s.gps_sat_count << "level=" << s.gps_signal_level;
         if (!writer->Write(msg)) break;
         IhattysServerService::_sleepMillis(period_ms);
     }
@@ -294,8 +321,7 @@ grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::subscribeArmA
 
     while (!_ctxCancelled(ctx)) {
         auto s = _cache->snapshot();
-        // You can replace with Vehicle->id() if you prefer; we just expose "known/0"
-        int systemid = std::isfinite(s.lat_deg) ? 1 : 0;
+        int systemid = s.vehicle_id >= 0 ? s.vehicle_id : 0;
         msg.set_systemid(systemid);
         if (!writer->Write(msg)) break;
         IhattysServerService::_sleepMillis(period_ms);
@@ -310,8 +336,26 @@ grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::acceptArmAuth
 {
     int sysid = req->systemid();
     int valid_s = req->valid_time_s();
+    qWarning() << "IhattysServerService::ArmAuthorizerServerServiceImpl::acceptArmAuthorization: sysid="
+               << sysid << " valid_s=" << valid_s;
     _state->acceptForSeconds(sysid, valid_s);
     out->set_result(ihattys::v1::ArmAuthorizerServerResultCode::ARM_AUTH_SUCCESS);
+     //TODO: send MAV_CMD_DO_SEND_SCRIPT_MESSAGE with param1=20 param2:1 param3:valid_s
+    // Send MAV_CMD_DO_SEND_SCRIPT_MESSAGE to the active vehicle so it knows
+    // about the remote arm-accept. param1=20 (custom code), param2=1 (accept),
+    // param3=valid_time_s (seconds).
+    if (auto mvm = MultiVehicleManager::instance()) {
+        if (auto vehicle = mvm->activeVehicle()) {
+            const int compId = sysid;
+            const MAV_CMD cmd = MAV_CMD_DO_SEND_SCRIPT_MESSAGE;
+            vehicle->sendMavCommand(compId, cmd, /*showError=*/false,
+                                    20.0f, /*param1*/
+                                    1.0f,  /*param2*/
+                                    static_cast<float>(valid_s) /*param3*/);
+        } else {
+            qWarning() << "No active vehicle to send script message";
+        }
+    }
     return grpc::Status::OK;
 }
 
@@ -319,9 +363,22 @@ grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::rejectArmAuth
     grpc::ServerContext*,
     const ihattys::v1::RejectArmAuthorizationRequest* req,
     ihattys::v1::ArmAuthorizerServerResult* out)
-{
+{   
     _state->reject(req->temporarily(), req->reason(), req->extrainfo());
     out->set_result(ihattys::v1::ArmAuthorizerServerResultCode::ARM_AUTH_FAILED);
+    if (auto mvm = MultiVehicleManager::instance()) {
+        if (auto vehicle = mvm->activeVehicle()) {
+            auto snap = _cache->snapshot();
+            int compId = snap.vehicle_id;
+            const MAV_CMD cmd = MAV_CMD_DO_SEND_SCRIPT_MESSAGE;
+            vehicle->sendMavCommand(compId, cmd, /*showError=*/false,
+                                    20.0f, /*param1*/
+                                    0.0f  /*param2*/
+                                    );
+        } else {
+            qWarning() << "No active vehicle to send script message";
+        }
+    }
     return grpc::Status::OK;
 }
 
@@ -344,7 +401,7 @@ grpc::Status IhattysServerService::InfoServiceImpl::GetIdentification(
     ihattys::v1::Identification* reply)
 {
     // Fill from your platform identity source if available
-    reply->set_hardware_uid("unknown");
+    reply->set_hardware_uid("testest");
     reply->set_legacy_uid(0);
     return grpc::Status::OK;
 }
@@ -363,7 +420,7 @@ IhattysServerService::IhattysServerService(QObject* parent)
             _telemetryCache.attachVehicle(mvm->activeVehicle());
         });
         _telemetryCache.attachVehicle(mvm->activeVehicle());
-    }
+    }    
 }
 
 IhattysServerService::~IhattysServerService()

@@ -43,6 +43,8 @@ struct TelemetrySnapshot {
 
     // Monotonic timestamp (us) when the attitude was last sampled
     int64_t attitude_timestamp_us = 0;
+
+    int32_t vehicle_id = -1;
 };
 
 /// QObject living on Qt main thread that listens to Vehicle signals / Facts,
@@ -93,11 +95,17 @@ public:
     Decision current() const;
 
     // Convenience helper for QML/C++ arming logic
-    Q_INVOKABLE bool isArmAuthorizedNow(int systemId) const;
+    Q_INVOKABLE bool isArmAuthorizedNow() const;
+
+    // Allow wiring the telemetry cache (active vehicle id) so arm decisions
+    // can be compared against the active vehicle.
+    void setTelemetryCache(const TelemetryCache* cache) { _cache = cache; }
 
 private:
     mutable std::mutex _mx;
     Decision _decision;
+    // Optional pointer to telemetry cache (not owned)
+    const TelemetryCache* _cache{nullptr};
 };
 
 /// The main service wrapper which owns the gRPC Server and service implementations.
@@ -116,7 +124,7 @@ public:
     void attachActiveVehicle(Vehicle* v);
 
     // Expose arm auth state checker to the rest of QGC
-    Q_INVOKABLE bool isArmAuthorizedNow(int systemId) const { return _armAuth.isArmAuthorizedNow(systemId); }
+    Q_INVOKABLE bool isArmAuthorizedNow() const { return _armAuth.isArmAuthorizedNow(); }
 
     // For unit tests
     std::string listenAddress() const { return _listenAddress; }

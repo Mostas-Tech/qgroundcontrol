@@ -11,6 +11,11 @@
 #include "QGCMAVLink.h"
 #include "QmlObjectListModel.h"
 
+#if defined(Q_OS_ANDROID)
+#include "QGCApplication.h"
+#include "Ihattys/IhattysServer.h"
+#endif
+
 
 HealthAndArmingCheckReport::HealthAndArmingCheckReport(QObject *parent)
     : QObject(parent)

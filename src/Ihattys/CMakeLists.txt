@@ -45,38 +45,36 @@ file(RELATIVE_PATH REL_GENERATED_DIR "${PROTO_DIR}" "${GENERATED_DIR}")
 # =============================================================================
 # Tools (portable lookup)
 # =============================================================================
-# Prefer imported locations from the package; fall back to PATH
-get_target_property(_PROTOC_LOC protobuf::protoc IMPORTED_LOCATION)
-if(NOT _PROTOC_LOC)
-  find_program(_PROTOC protoc REQUIRED)
+# Prefer user-specified executables (cache variables), then imported targets,
+# then fallback to PATH. This allows presets to provide PROTOC_EXECUTABLE and
+# GRPC_CPP_PLUGIN_EXECUTABLE (useful on Windows/vcpkg setups).
+if(DEFINED PROTOC_EXECUTABLE)
+  set(_PROTOC "${PROTOC_EXECUTABLE}")
 else()
-  set(_PROTOC "${_PROTOC_LOC}")
+  get_target_property(_PROTOC_LOC protobuf::protoc IMPORTED_LOCATION)
+  if(NOT _PROTOC_LOC)
+    find_program(_PROTOC protoc REQUIRED)
+  else()
+    set(_PROTOC "${_PROTOC_LOC}")
+  endif()
 endif()
 
-get_target_property(_GRPC_PLUGIN_LOC gRPC::grpc_cpp_plugin IMPORTED_LOCATION)
-if(NOT _GRPC_PLUGIN_LOC)
-  find_program(_GRPC_PLUGIN grpc_cpp_plugin REQUIRED)
+if(DEFINED GRPC_CPP_PLUGIN_EXECUTABLE)
+  set(_GRPC_PLUGIN "${GRPC_CPP_PLUGIN_EXECUTABLE}")
 else()
-  set(_GRPC_PLUGIN "${_GRPC_PLUGIN_LOC}")
+  get_target_property(_GRPC_PLUGIN_LOC gRPC::grpc_cpp_plugin IMPORTED_LOCATION)
+  if(NOT _GRPC_PLUGIN_LOC)
+    find_program(_GRPC_PLUGIN grpc_cpp_plugin REQUIRED)
+  else()
+    set(_GRPC_PLUGIN "${_GRPC_PLUGIN_LOC}")
+  endif()
 endif()
 
 # =============================================================================
 # Code generation
 # =============================================================================
-# Resolve protoc and plugin, as you already do...
-get_target_property(_PROTOC_LOC protobuf::protoc IMPORTED_LOCATION)
-if(NOT _PROTOC_LOC)
-  find_program(_PROTOC protoc REQUIRED)
-else()
-  set(_PROTOC "${_PROTOC_LOC}")
-endif()
-
-get_target_property(_GRPC_PLUGIN_LOC gRPC::grpc_cpp_plugin IMPORTED_LOCATION)
-if(NOT _GRPC_PLUGIN_LOC)
-  find_program(_GRPC_PLUGIN grpc_cpp_plugin REQUIRED)
-else()
-  set(_GRPC_PLUGIN "${_GRPC_PLUGIN_LOC}")
-endif()
+# _PROTOC and _GRPC_PLUGIN should now be set (from cache vars, imported targets,
+# or found on PATH). Convert plugin path to native Windows form (no quotes here)
 
 # Convert plugin path to native Windows form (no quotes here)
 file(TO_NATIVE_PATH "${_GRPC_PLUGIN}" GRPC_PLUGIN_NATIVE)

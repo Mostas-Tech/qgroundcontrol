@@ -52,9 +52,9 @@
 #include "SerialLink.h"
 #endif
 
-#ifdef Q_OS_ANDROID
+
 #include "Ihattys/IhattysServer.h"
-#endif
+
 
 QGC_LOGGING_CATEGORY(QGCApplicationLog, "API.QGCApplication")
 
@@ -237,7 +237,7 @@ void QGCApplication::init()
         _initForNormalAppBoot();
     }
 
-    #ifdef Q_OS_ANDROID
+
     _ihattys = std::make_unique<IhattysServerService>(this);
     // Optional: make port configurable later via App Settings; for now default is fine
     if (!_ihattys->start()) {
@@ -248,7 +248,7 @@ void QGCApplication::init()
     connect(this, &QCoreApplication::aboutToQuit, this, [this](){
         if (_ihattys) _ihattys->stop();
     });
-    #endif
+
 }
 
 void QGCApplication::_initVideo()

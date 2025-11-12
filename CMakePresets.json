@@ -74,15 +74,47 @@
         "DQML_IMPORT_PATH": "${sourceDir}/build/Android_Qt_6.10.0_Clang_arm64_v8a-Release/qml;${sourceDir}/custom/res"
       }
     }
+    ,
+    {
+      "name": "windows-ihattys-debug",
+      "displayName": "Windows + Qt 6.10.0 (Debug, vcpkg)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/VS2022_Qt6.10.0-Debug",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Debug",
+
+        "CMAKE_TOOLCHAIN_FILE": "C:/vcpkg/scripts/buildsystems/vcpkg.cmake",
+        "VCPKG_TARGET_TRIPLET": "x64-windows",
+
+        "CMAKE_PREFIX_PATH": "E:/Qtdesignstudio/6.10.0/msvc2022_64;C:/vcpkg/installed/x64-windows",
+        "Qt6_DIR": "E:/Qtdesignstudio/6.10.0/msvc2022_64/lib/cmake/Qt6",
+        "QT_HOST_PATH": "E:/Qtdesignstudio/6.10.0/msvc2022_64",
+
+        "DQGC_QT_MINIMUM_VERSION": "6.10.0",
+        "DQGC_QT_MAXIMUM_VERSION": "6.10.0",
+        "DQGC_DEBUG_QML": "ON",
+
+        "BUILD_TESTING": "OFF",
+        "DQGC_BUILD_TESTING": "OFF",
+        "CONVERT_WARNINGS_TO_ERRORS": "OFF",
+
+        "PROTOC_EXECUTABLE": "C:/vcpkg/installed/x64-windows/tools/protobuf/protoc.exe",
+        "GRPC_CPP_PLUGIN_EXECUTABLE": "C:/vcpkg/installed/x64-windows/tools/grpc/grpc_cpp_plugin.exe",
+
+        "QGC_ENABLE_IHATTYS": "ON"
+      }
+    }
   ],
 
   "buildPresets": [
     { "name": "android-debug", "configurePreset": "android-ihattys-debug" },
     { "name": "android-release", "configurePreset": "android-ihattys-release" }
+    , { "name": "windows-debug", "configurePreset": "windows-ihattys-debug" }
   ],
 
   "testPresets": [
     { "name": "ctest-android-debug", "configurePreset": "android-ihattys-debug" },
     { "name": "ctest-android-release", "configurePreset": "android-ihattys-release" }
+    , { "name": "ctest-windows-debug", "configurePreset": "windows-ihattys-debug" }
   ]
 }

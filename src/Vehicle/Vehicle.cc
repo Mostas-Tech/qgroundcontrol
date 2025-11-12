@@ -1619,6 +1619,7 @@ void Vehicle::forceArm(void)
                    2989);   // force arm
 }
 
+
 bool Vehicle::flightModeSetAvailable()
 {
     return _firmwarePlugin->isCapable(this, FirmwarePlugin::SetFlightModeCapability);

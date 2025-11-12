@@ -67,7 +67,6 @@ public:
     bool canTakeoff() const { return _canTakeoff; }
     bool canStartMission() const { return _canStartMission; }
     bool hasWarningsOrErrors() const { return _hasWarningsOrErrors; }
-
     const QString& gpsState() const { return _gpsState; }
 
     QmlObjectListModel* problemsForCurrentMode() { return _problemsForCurrentMode; }

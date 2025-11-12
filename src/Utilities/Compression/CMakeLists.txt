@@ -17,31 +17,49 @@ target_include_directories(${CMAKE_PROJECT_NAME} PRIVATE ${CMAKE_CURRENT_SOURCE_
 
 # ============================================================================
 # zlib Integration
+# Prefer an externally-provided zlib (vcpkg/system). Fall back to the
+# in-tree CPM package only when no ZLIB target is available. This avoids
+# linking both vcpkg's zlib and the in-tree zlib (which caused duplicate
+# symbol LNK2005 / LNK1169 errors).
 # ============================================================================
 
-# Platform-specific zlib options
-set(ZLIB_EXTRA_OPTIONS)
-if(WIN32)
-    set(ZLIB_EXTRA_OPTIONS
-        "ZLIB_INSTALL_COMPAT_DLL OFF"
+# First, try to find a ZLIB package provided by the system or toolchain (vcpkg)
+find_package(ZLIB QUIET)
+
+# If no imported ZLIB target exists, pull in the vendored zlib via CPM
+if(NOT TARGET ZLIB::ZLIB AND NOT TARGET ZLIB::ZLIBSTATIC)
+    # Platform-specific zlib options
+    set(ZLIB_EXTRA_OPTIONS)
+    if(WIN32)
+        set(ZLIB_EXTRA_OPTIONS
+            "ZLIB_INSTALL_COMPAT_DLL OFF"
+        )
+    endif()
+
+    CPMAddPackage(
+        NAME zlib
+        GITHUB_REPOSITORY madler/zlib
+        GIT_TAG develop
+        OPTIONS
+            "ZLIB_BUILD_TESTING OFF"
+            "ZLIB_BUILD_SHARED OFF"
+            "ZLIB_BUILD_STATIC ON"
+            "ZLIB_BUILD_MINIZIP OFF"
+            "ZLIB_INSTALL OFF"
+            "ZLIB_PREFIX OFF"
+            "${ZLIB_EXTRA_OPTIONS}"
     )
 endif()
 
-CPMAddPackage(
-    NAME zlib
-    GITHUB_REPOSITORY madler/zlib
-    GIT_TAG develop
-    OPTIONS
-        "ZLIB_BUILD_TESTING OFF"
-        "ZLIB_BUILD_SHARED OFF"
-        "ZLIB_BUILD_STATIC ON"
-        "ZLIB_BUILD_MINIZIP OFF"
-        "ZLIB_INSTALL OFF"
-        "ZLIB_PREFIX OFF"
-        "${ZLIB_EXTRA_OPTIONS}"
-)
-
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ZLIB::ZLIBSTATIC)
+# Link the appropriate imported target. Prefer the static target alias if
+# available, otherwise fall back to the shared/imported target.
+if(TARGET ZLIB::ZLIBSTATIC)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ZLIB::ZLIBSTATIC)
+elseif(TARGET ZLIB::ZLIB)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ZLIB::ZLIB)
+else()
+    message(FATAL_ERROR "zlib not found: neither ZLIB::ZLIB nor ZLIB::ZLIBSTATIC are available")
+endif()
 
 # ============================================================================
 # XZ (LZMA) Integration

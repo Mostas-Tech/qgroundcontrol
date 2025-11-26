@@ -175,99 +175,110 @@ static inline bool _ctxCancelled(grpc::ServerContext* ctx) {
 
 // -------- CoreService --------
 
-grpc::Status IhattysServerService::CoreServiceImpl::subscribeConnectionState(
+grpc::Status IhattysServerService::CoreServiceImpl::SubscribeConnectionState(
     grpc::ServerContext* ctx,
-    const ihattys::v1::SubscribeConnectionStateRequest*,
-    grpc::ServerWriter<ihattys::v1::ConnectionStateResponse>* writer)
+    const mavsdk::rpc::core::SubscribeConnectionStateRequest*,
+    grpc::ServerWriter<mavsdk::rpc::core::ConnectionStateResponse>* writer)
 {
     // 1 Hz as a “status” stream is fine here
     const int period_ms = 1000;
-    ihattys::v1::ConnectionStateResponse resp;
+    mavsdk::rpc::core::ConnectionStateResponse resp;
 
+    // Connection = client <-> server. Emit 'connected' immediately for this subscriber.
+    resp.mutable_connection_state()->set_is_connected(true);
+    if (!writer->Write(resp)) return grpc::Status::OK;
+
+    // Keep streaming as long as client is connected.
     while (!_ctxCancelled(ctx)) {
-        auto snap = _cache->snapshot();
-        const bool connected = std::isfinite(snap.lat_deg) && std::isfinite(snap.lon_deg); // heuristic
-        resp.set_isconnected(connected);
+        // keep sending "connected" (or change to heartbeat payload if desired)
+        resp.mutable_connection_state()->set_is_connected(true);
         if (!writer->Write(resp)) break;
         IhattysServerService::_sleepMillis(period_ms);
     }
+
+    // When we get here the client unsubscribed / connection closed.
     return grpc::Status::OK;
 }
 
 // -------- TelemetryService --------
 
-grpc::Status IhattysServerService::TelemetryServiceImpl::subscribePosition(
+grpc::Status IhattysServerService::TelemetryServiceImpl::SubscribePosition(
     grpc::ServerContext* ctx,
-    const ihattys::v1::SubscribePositionRequest*,
-    grpc::ServerWriter<ihattys::v1::Position>* writer)
+    const mavsdk::rpc::telemetry::SubscribePositionRequest*,
+    grpc::ServerWriter<mavsdk::rpc::telemetry::PositionResponse>* writer)
 {
     // 10 Hz
     const int period_ms = 100;
-    ihattys::v1::Position msg;
+    mavsdk::rpc::telemetry::PositionResponse msg;
 
     while (!_ctxCancelled(ctx)) {
         auto s = _cache->snapshot();
-        msg.set_lat(s.lat_deg);
-        msg.set_lon(s.lon_deg);
-        msg.set_alt(s.alt_amsl_m);  // AMSL (per spec)
-        msg.set_relalt(s.rel_alt_m); // Relative to home
+        auto pos = msg.mutable_position();
+        pos->set_latitude_deg(s.lat_deg);
+        pos->set_longitude_deg(s.lon_deg);
+        pos->set_absolute_altitude_m(static_cast<float>(s.alt_amsl_m));  // AMSL (per spec)
+        pos->set_relative_altitude_m(static_cast<float>(s.rel_alt_m)); // Relative to home
+        if (!writer->Write(msg)) break;
+        IhattysServerService::_sleepMillis(period_ms);
+        qWarning() << "IhattysServerService::TelemetryServiceImpl::SubscribePosition: lat="
+                   << s.lat_deg << " lon=" << s.lon_deg
+                   << " alt_amsl=" << s.alt_amsl_m << " rel_alt=" << s.rel_alt_m;
+    }
+    return grpc::Status::OK;
+}
+
+grpc::Status IhattysServerService::TelemetryServiceImpl::SubscribeAltitude(
+    grpc::ServerContext* ctx,
+    const mavsdk::rpc::telemetry::SubscribeAltitudeRequest*,
+    grpc::ServerWriter<mavsdk::rpc::telemetry::AltitudeResponse>* writer)
+{
+    // 10 Hz
+    const int period_ms = 100;
+    mavsdk::rpc::telemetry::AltitudeResponse msg;
+
+    while (!_ctxCancelled(ctx)) {
+        auto s = _cache->snapshot();
+        msg.mutable_altitude()->set_altitude_amsl_m(static_cast<float>(s.alt_amsl_m));
         if (!writer->Write(msg)) break;
         IhattysServerService::_sleepMillis(period_ms);
     }
     return grpc::Status::OK;
 }
 
-grpc::Status IhattysServerService::TelemetryServiceImpl::subscribeAltitude(
+grpc::Status IhattysServerService::TelemetryServiceImpl::SubscribeInAir(
     grpc::ServerContext* ctx,
-    const ihattys::v1::SubscribeAltitudeRequest*,
-    grpc::ServerWriter<ihattys::v1::Altitude>* writer)
-{
-    // 10 Hz
-    const int period_ms = 100;
-    ihattys::v1::Altitude msg;
-
-    while (!_ctxCancelled(ctx)) {
-        auto s = _cache->snapshot();
-        msg.set_altitudeamslm(static_cast<float>(s.alt_amsl_m));
-        if (!writer->Write(msg)) break;
-        IhattysServerService::_sleepMillis(period_ms);
-    }
-    return grpc::Status::OK;
-}
-
-grpc::Status IhattysServerService::TelemetryServiceImpl::subscribeInAir(
-    grpc::ServerContext* ctx,
-    const ihattys::v1::SubscribeInAirRequest*,
-    grpc::ServerWriter<ihattys::v1::InAirResponse>* writer)
+    const mavsdk::rpc::telemetry::SubscribeInAirRequest*,
+    grpc::ServerWriter<mavsdk::rpc::telemetry::InAirResponse>* writer)
 {
     // 1 Hz
     const int period_ms = 1000;
-    ihattys::v1::InAirResponse msg;
+    mavsdk::rpc::telemetry::InAirResponse msg;
 
     while (!_ctxCancelled(ctx)) {
         auto s = _cache->snapshot();
-        msg.set_isinair(s.in_air);
+        msg.set_is_in_air(s.in_air);
         if (!writer->Write(msg)) break;
         IhattysServerService::_sleepMillis(period_ms);
     }
     return grpc::Status::OK;
 }
 
-grpc::Status IhattysServerService::TelemetryServiceImpl::subscribeAttitudeEuler(
+grpc::Status IhattysServerService::TelemetryServiceImpl::SubscribeAttitudeEuler(
     grpc::ServerContext* ctx,
-    const ihattys::v1::SubscribeAttitudeEulerRequest*,
-    grpc::ServerWriter<ihattys::v1::AttitudeEulerResponse>* writer)
+    const mavsdk::rpc::telemetry::SubscribeAttitudeEulerRequest*,
+    grpc::ServerWriter<mavsdk::rpc::telemetry::AttitudeEulerResponse>* writer)
 {
     // 50 Hz
     const int period_ms = 20;
-    ihattys::v1::AttitudeEulerResponse msg;
+    mavsdk::rpc::telemetry::AttitudeEulerResponse msg;
 
     while (!_ctxCancelled(ctx)) {
         auto s = _cache->snapshot();
-        msg.set_rolldeg(s.roll_deg);
-        msg.set_pitchdeg(s.pitch_deg);
-        msg.set_yawdeg(s.yaw_deg);
-        msg.set_timestampus(s.attitude_timestamp_us);
+        auto e = msg.mutable_attitude_euler();
+        e->set_roll_deg(s.roll_deg);
+        e->set_pitch_deg(s.pitch_deg);
+        e->set_yaw_deg(s.yaw_deg);
+        e->set_timestamp_us(s.attitude_timestamp_us);
         if (!writer->Write(msg)) break;
         IhattysServerService::_sleepMillis(period_ms);
     }
@@ -276,19 +287,31 @@ grpc::Status IhattysServerService::TelemetryServiceImpl::subscribeAttitudeEuler(
 
 // -------- FlightControllerService --------
 
-grpc::Status IhattysServerService::FlightControllerServiceImpl::subscribeGpsInfo(
+grpc::Status IhattysServerService::TelemetryServiceImpl::SubscribeGpsInfo(
     grpc::ServerContext* ctx,
-    const ihattys::v1::SubscribeGpsInfoRequest*,
-    grpc::ServerWriter<ihattys::v1::GpsInfo>* writer)
+    const mavsdk::rpc::telemetry::SubscribeGpsInfoRequest*,
+    grpc::ServerWriter<mavsdk::rpc::telemetry::GpsInfoResponse>* writer)
 {
     // 1 Hz
     const int period_ms = 1000;
-    ihattys::v1::GpsInfo msg;
+    mavsdk::rpc::telemetry::GpsInfoResponse msg;
 
     while (!_ctxCancelled(ctx)) {
         auto s = _cache->snapshot();
-        msg.set_numsatellites(s.gps_sat_count);
-        msg.set_level(static_cast<ihattys::v1::GpsSignalLevel>(s.gps_signal_level));
+        msg.mutable_gps_info()->set_num_satellites(s.gps_sat_count);
+        {
+            using mavsdk::rpc::telemetry::FixType;
+            FixType fix = FixType::FIX_TYPE_NO_GPS;
+            if (s.gps_sat_count >= 4) {
+                fix = FixType::FIX_TYPE_FIX_3D;
+            } else if (s.gps_sat_count == 3) {
+                fix = FixType::FIX_TYPE_FIX_2D;
+            } else if (s.gps_sat_count > 0) {
+                fix = FixType::FIX_TYPE_NO_FIX;
+            }
+            msg.mutable_gps_info()->set_fix_type(fix);
+        }
+        // mavsdk GpsInfo does not have a 'level' enum equivalent; omit for now.
         if (!writer->Write(msg)) break;
         IhattysServerService::_sleepMillis(period_ms);
     }
@@ -297,50 +320,68 @@ grpc::Status IhattysServerService::FlightControllerServiceImpl::subscribeGpsInfo
 
 // -------- ActionService --------
 
-grpc::Status IhattysServerService::ActionServiceImpl::hold(
+grpc::Status IhattysServerService::ActionServiceImpl::Hold(
     grpc::ServerContext*,
-    const ihattys::v1::HoldRequest*,
-    ihattys::v1::ActionResult* response)
+    const mavsdk::rpc::action::HoldRequest*,
+    mavsdk::rpc::action::HoldResponse* response)
 {
+    qWarning() << "IhattysServerService::ActionServiceImpl::Hold called";
+
     // Not implemented yet per your request (#5)
-    response->set_result(ihattys::v1::ActionResultCode::ACTION_FAILED);
-    response->set_resultstr("Action 'hold' not implemented");
-    return grpc::Status(grpc::StatusCode::UNIMPLEMENTED, "hold not implemented");
+    // Take the drone in Brake mode and respond
+    // Try to find the active vehicle and request a pause (brake) action.
+    if (auto mvm = MultiVehicleManager::instance()) {
+        if (auto vehicle = mvm->activeVehicle()) {
+            qWarning() << "Ihattys: requesting vehicle pause (hold/brake)";
+            // Delegate to Vehicle API which will call the firmware plugin to
+            // perform the proper MAV command for the platform.
+            vehicle->pauseVehicle();
+            response->mutable_action_result()->set_result(
+                mavsdk::rpc::action::ActionResult::RESULT_SUCCESS);
+            return grpc::Status::OK;
+        }
+    }
+
+    qWarning() << "Ihattys: no active vehicle to hold";
+    response->mutable_action_result()->set_result(
+        mavsdk::rpc::action::ActionResult::RESULT_FAILED);
+    return grpc::Status::OK;
 }
 
 // -------- ArmAuthorizerServerService --------
 
-grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::subscribeArmAuthorization(
+grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::SubscribeArmAuthorization(
     grpc::ServerContext* ctx,
-    const ihattys::v1::SubscribeArmAuthorizationRequest*,
-    grpc::ServerWriter<ihattys::v1::ArmAuthorizationResponse>* writer)
+    const mavsdk::rpc::arm_authorizer_server::SubscribeArmAuthorizationRequest*,
+    grpc::ServerWriter<mavsdk::rpc::arm_authorizer_server::ArmAuthorizationResponse>* writer)
 {
     // 1 Hz: stream the active system id (0 if unknown)
     const int period_ms = 1000;
-    ihattys::v1::ArmAuthorizationResponse msg;
+    mavsdk::rpc::arm_authorizer_server::ArmAuthorizationResponse msg;
 
     while (!_ctxCancelled(ctx)) {
         auto s = _cache->snapshot();
         int systemid = s.vehicle_id >= 0 ? s.vehicle_id : 0;
-        msg.set_systemid(systemid);
+        msg.set_system_id(systemid);
         if (!writer->Write(msg)) break;
         IhattysServerService::_sleepMillis(period_ms);
     }
     return grpc::Status::OK;
 }
 
-grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::acceptArmAuthorization(
+grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::AcceptArmAuthorization(
     grpc::ServerContext*,
-    const ihattys::v1::AcceptArmAuthorizationRequest* req,
-    ihattys::v1::ArmAuthorizerServerResult* out)
+    const mavsdk::rpc::arm_authorizer_server::AcceptArmAuthorizationRequest* req,
+    mavsdk::rpc::arm_authorizer_server::AcceptArmAuthorizationResponse* out)
 {
-    int sysid = req->systemid();
     int valid_s = req->valid_time_s();
-    qWarning() << "IhattysServerService::ArmAuthorizerServerServiceImpl::acceptArmAuthorization: sysid="
+    auto snap = _cache->snapshot();
+    int sysid = snap.vehicle_id >= 0 ? snap.vehicle_id : 0;
+    qWarning() << "IhattysServerService::ArmAuthorizerServerServiceImpl::AcceptArmAuthorization: sysid="
                << sysid << " valid_s=" << valid_s;
     _state->acceptForSeconds(sysid, valid_s);
-    out->set_result(ihattys::v1::ArmAuthorizerServerResultCode::ARM_AUTH_SUCCESS);
-     //TODO: send MAV_CMD_DO_SEND_SCRIPT_MESSAGE with param1=20 param2:1 param3:valid_s
+    out->mutable_arm_authorizer_server_result()->set_result(
+        mavsdk::rpc::arm_authorizer_server::ArmAuthorizerServerResult::RESULT_SUCCESS);
     // Send MAV_CMD_DO_SEND_SCRIPT_MESSAGE to the active vehicle so it knows
     // about the remote arm-accept. param1=20 (custom code), param2=1 (accept),
     // param3=valid_time_s (seconds).
@@ -359,13 +400,18 @@ grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::acceptArmAuth
     return grpc::Status::OK;
 }
 
-grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::rejectArmAuthorization(
+grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::RejectArmAuthorization(
     grpc::ServerContext*,
-    const ihattys::v1::RejectArmAuthorizationRequest* req,
-    ihattys::v1::ArmAuthorizerServerResult* out)
+    const mavsdk::rpc::arm_authorizer_server::RejectArmAuthorizationRequest* req,
+    mavsdk::rpc::arm_authorizer_server::RejectArmAuthorizationResponse* out)
 {   
-    _state->reject(req->temporarily(), req->reason(), req->extrainfo());
-    out->set_result(ihattys::v1::ArmAuthorizerServerResultCode::ARM_AUTH_FAILED);
+    // MavSDK uses an enum for reason and an extra_info int; translate to strings
+    _state->reject(req->temporarily(), std::to_string(static_cast<int>(req->reason())), std::to_string(req->extra_info()));
+    out->mutable_arm_authorizer_server_result()->set_result(
+        mavsdk::rpc::arm_authorizer_server::ArmAuthorizerServerResult::RESULT_FAILED);
+    qWarning() << "IhattysServerService::ArmAuthorizerServerServiceImpl::RejectArmAuthorization: temporary="
+               << req->temporarily() << " reason=" << static_cast<int>(req->reason())
+               << " extra_info=" << req->extra_info();
     if (auto mvm = MultiVehicleManager::instance()) {
         if (auto vehicle = mvm->activeVehicle()) {
             auto snap = _cache->snapshot();
@@ -386,23 +432,23 @@ grpc::Status IhattysServerService::ArmAuthorizerServerServiceImpl::rejectArmAuth
 
 grpc::Status IhattysServerService::InfoServiceImpl::GetProduct(
     grpc::ServerContext*,
-    const ihattys::v1::GetProductRequest*,
-    ihattys::v1::Product* reply)
+    const mavsdk::rpc::info::GetProductRequest*,
+    mavsdk::rpc::info::GetProductResponse* reply)
 {
     // Static for now; you can wire to Vehicle->firmwareType()/brand if needed.
-    reply->set_vendorname("Mostas / QGroundControl");
-    reply->set_productname("Custom GCS");
+    reply->mutable_product()->set_vendor_name("Mostas / QGroundControl");
+    reply->mutable_product()->set_product_name("Custom GCS");
     return grpc::Status::OK;
 }
 
 grpc::Status IhattysServerService::InfoServiceImpl::GetIdentification(
     grpc::ServerContext*,
-    const ihattys::v1::GetIdentificationRequest*,
-    ihattys::v1::Identification* reply)
+    const mavsdk::rpc::info::GetIdentificationRequest*,
+    mavsdk::rpc::info::GetIdentificationResponse* reply)
 {
     // Fill from your platform identity source if available
-    reply->set_hardware_uid("testest");
-    reply->set_legacy_uid(0);
+    reply->mutable_identification()->set_hardware_uid("testest");
+    reply->mutable_identification()->set_legacy_uid(0);
     return grpc::Status::OK;
 }
 
@@ -434,7 +480,6 @@ bool IhattysServerService::start()
 
     _coreSvc     = std::make_unique<CoreServiceImpl>(&_telemetryCache);
     _telemetrySvc= std::make_unique<TelemetryServiceImpl>(&_telemetryCache);
-    _fcSvc       = std::make_unique<FlightControllerServiceImpl>(&_telemetryCache);
     _actionSvc   = std::make_unique<ActionServiceImpl>();
     _armSvc      = std::make_unique<ArmAuthorizerServerServiceImpl>(&_armAuth, &_telemetryCache);
     _infoSvc     = std::make_unique<InfoServiceImpl>(&_telemetryCache);
@@ -443,7 +488,6 @@ bool IhattysServerService::start()
     builder.AddListeningPort(_listenAddress, grpc::InsecureServerCredentials());
     builder.RegisterService(_coreSvc.get());
     builder.RegisterService(_telemetrySvc.get());
-    builder.RegisterService(_fcSvc.get());
     builder.RegisterService(_actionSvc.get());
     builder.RegisterService(_armSvc.get());
     builder.RegisterService(_infoSvc.get());
@@ -471,7 +515,6 @@ void IhattysServerService::stop()
     _server.reset();
     _coreSvc.reset();
     _telemetrySvc.reset();
-    _fcSvc.reset();
     _actionSvc.reset();
     _armSvc.reset();
     _infoSvc.reset();

@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+option java_multiple_files = true;
+option java_package = "com.serverapp.proto";
+option java_outer_classname = "ServiceProto";
+
+package service;
+
+// The service definition
+service CommunicationService {
+  // Send a message
+  rpc SendMessage (MessageRequest) returns (MessageResponse) {}
+  
+  // Stream messages
+  rpc StreamMessages (MessageRequest) returns (stream MessageResponse) {}
+}
+
+// The request message
+message MessageRequest {
+  string content = 1;
+  string sender = 2;
+}
+
+// The response message
+message MessageResponse {
+  string content = 1;
+  string sender = 2;
+  int64 timestamp = 3;
+} 

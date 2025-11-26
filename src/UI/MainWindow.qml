@@ -362,6 +362,7 @@ ApplicationWindow {
                         Layout.fillWidth:   true
                         text:               qsTr("Vehicle Configuration")
                         imageResource:      "/qmlimages/Gears.svg"
+                        visible:            QGroundControl.corePlugin.showAdvancedUI
                         onClicked: {
                             if (mainWindow.allowViewSwitch()) {
                                 mainWindow.closeIndicatorDrawer()

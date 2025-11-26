@@ -11,10 +11,21 @@
       "default": 2.0,
       "units": "m",
       "min": 2,
-      "max": 5,
+      "max": 50,
       "decimalPlaces": 1,
       "shortDescription": "Distance between flight lines",
       "longDescription": "Controls spacing between adjacent parallel legs of the pattern."
+    },
+    {
+      "name": "FieldPadding",
+      "type": "double",
+      "default": 2.0,
+      "units": "m",
+      "min": 0.5,
+      "max": 3.0,
+      "decimalPlaces": 1,
+      "shortDescription": "Field padding",
+      "longDescription": "Amount of padding to apply to fences and the working polygon. Fence padding is applied outward (increases exclusion zones); polygon padding is applied inward (shrinks the working area). Minimum is 1 m."
     },
     {
       "name": "GridAngle",
@@ -51,15 +62,37 @@
       "default": 5.0,
       "units": "m/s",
       "min": 0.1,
-      "max": 12.0,
+      "max": 30.0,
       "decimalPlaces": 1,
       "shortDescription": "Fixed airspeed",
       "longDescription": "Speed used when Speed Mode is set to Fixed."
     },
     {
-      "name": "TurnAroundDistanceMultiRotor",
+      "name": "PesticideLitersPerDekar",
       "type": "double",
       "default": 1.0,
+      "units": "L/dekar",
+      "min": 1.0,
+      "max": 40.0,
+      "decimalPlaces": 2,
+      "shortDescription": "Pesticide rate",
+      "longDescription": "Desired application rate expressed as liters per dekar."
+    },
+    {
+      "name": "PesticideDropletSize",
+      "type": "double",
+      "default": 100.0,
+      "units": "um",
+      "min": 35.0,
+      "max": 350.0,
+      "decimalPlaces": 0,
+      "shortDescription": "Droplet size",
+      "longDescription": "Target droplet diameter in micrometers for the spray system."
+    },
+    {
+      "name": "TurnAroundDistanceMultiRotor",
+      "type": "double",
+      "default": 0.0,
       "units": "m",
       "min": 0.0,
       "max": 5,

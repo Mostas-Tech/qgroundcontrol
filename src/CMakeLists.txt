@@ -257,13 +257,4 @@ if(QGC_CUSTOM_BUILD)
 endif()
 
 
-# ---- Copy vcpkg runtime DLLs (for Debug/Release) ----
-if(WIN32 AND DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
-  set(_vcpkg_bin_cfg "$<IF:$<CONFIG:Debug>,debug/bin,bin>")
-  set(_vcpkg_bin_dir "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/${_vcpkg_bin_cfg}")
-
-  add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
-    COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>"
-    COMMAND ${CMAKE_COMMAND} -E copy_directory "${_vcpkg_bin_dir}" "$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>"
-    COMMENT "Copying vcpkg runtime DLLs from ${_vcpkg_bin_dir}")
-endif()
+# vcpkg runtime DLL copying is handled in the top-level CMakeLists

@@ -15,8 +15,12 @@
 #include <grpcpp/grpcpp.h>
 
 // Generated from your .proto files (adjust include paths to your build)
-#include "ihattys_api.pb.h"
-#include "ihattys_api.grpc.pb.h"
+// Use MavSDK proto-generated headers
+#include "mavsdk/core/core.grpc.pb.h"
+#include "mavsdk/telemetry/telemetry.grpc.pb.h"
+#include "mavsdk/action/action.grpc.pb.h"
+#include "mavsdk/arm_authorizer_server/arm_authorizer_server.grpc.pb.h"
+#include "mavsdk/info/info.grpc.pb.h"
 
 // QGC forward decls (avoid heavy includes in header)
 class Vehicle;
@@ -144,99 +148,94 @@ private:
     std::thread _serverThread;
 
     // ==== Service implementations (synchronous for clarity) ====
-    class CoreServiceImpl final : public ihattys::v1::CoreService::Service {
+    class CoreServiceImpl final : public mavsdk::rpc::core::CoreService::Service {
     public:
         explicit CoreServiceImpl(const TelemetryCache* cache) : _cache(cache) {}
-        grpc::Status subscribeConnectionState(
+        grpc::Status SubscribeConnectionState(
             grpc::ServerContext* ctx,
-            const ihattys::v1::SubscribeConnectionStateRequest*,
-            grpc::ServerWriter<ihattys::v1::ConnectionStateResponse>* writer) override;
+            const mavsdk::rpc::core::SubscribeConnectionStateRequest*,
+            grpc::ServerWriter<mavsdk::rpc::core::ConnectionStateResponse>* writer) override;
 
     private:
         const TelemetryCache* _cache{};
     };
 
-    class TelemetryServiceImpl final : public ihattys::v1::TelemetryService::Service {
+    class TelemetryServiceImpl final : public mavsdk::rpc::telemetry::TelemetryService::Service {
     public:
         explicit TelemetryServiceImpl(const TelemetryCache* cache) : _cache(cache) {}
-        grpc::Status subscribePosition(
+        grpc::Status SubscribePosition(
             grpc::ServerContext*,
-            const ihattys::v1::SubscribePositionRequest*,
-            grpc::ServerWriter<ihattys::v1::Position>* writer) override;
+            const mavsdk::rpc::telemetry::SubscribePositionRequest*,
+            grpc::ServerWriter<mavsdk::rpc::telemetry::PositionResponse>* writer) override;
 
-        grpc::Status subscribeAltitude(
+        grpc::Status SubscribeAltitude(
             grpc::ServerContext*,
-            const ihattys::v1::SubscribeAltitudeRequest*,
-            grpc::ServerWriter<ihattys::v1::Altitude>* writer) override;
+            const mavsdk::rpc::telemetry::SubscribeAltitudeRequest*,
+            grpc::ServerWriter<mavsdk::rpc::telemetry::AltitudeResponse>* writer) override;
 
-        grpc::Status subscribeInAir(
+        grpc::Status SubscribeInAir(
             grpc::ServerContext*,
-            const ihattys::v1::SubscribeInAirRequest*,
-            grpc::ServerWriter<ihattys::v1::InAirResponse>* writer) override;
+            const mavsdk::rpc::telemetry::SubscribeInAirRequest*,
+            grpc::ServerWriter<mavsdk::rpc::telemetry::InAirResponse>* writer) override;
 
-        grpc::Status subscribeAttitudeEuler(
+        grpc::Status SubscribeAttitudeEuler(
             grpc::ServerContext*,
-            const ihattys::v1::SubscribeAttitudeEulerRequest*,
-            grpc::ServerWriter<ihattys::v1::AttitudeEulerResponse>* writer) override;
+            const mavsdk::rpc::telemetry::SubscribeAttitudeEulerRequest*,
+            grpc::ServerWriter<mavsdk::rpc::telemetry::AttitudeEulerResponse>* writer) override;
+
+        grpc::Status SubscribeGpsInfo(
+            grpc::ServerContext*,
+            const mavsdk::rpc::telemetry::SubscribeGpsInfoRequest*,
+            grpc::ServerWriter<mavsdk::rpc::telemetry::GpsInfoResponse>* writer) override;
 
     private:
         const TelemetryCache* _cache{};
     };
 
-    class FlightControllerServiceImpl final : public ihattys::v1::FlightControllerService::Service {
-    public:
-        explicit FlightControllerServiceImpl(const TelemetryCache* cache) : _cache(cache) {}
-        grpc::Status subscribeGpsInfo(
-            grpc::ServerContext*,
-            const ihattys::v1::SubscribeGpsInfoRequest*,
-            grpc::ServerWriter<ihattys::v1::GpsInfo>* writer) override;
+    
 
-    private:
-        const TelemetryCache* _cache{};
+    class ActionServiceImpl final : public mavsdk::rpc::action::ActionService::Service {
+    public:
+        grpc::Status Hold(grpc::ServerContext*,
+                          const mavsdk::rpc::action::HoldRequest*,
+                          mavsdk::rpc::action::HoldResponse* response) override;
     };
 
-    class ActionServiceImpl final : public ihattys::v1::ActionService::Service {
-    public:
-        grpc::Status hold(grpc::ServerContext*,
-                          const ihattys::v1::HoldRequest*,
-                          ihattys::v1::ActionResult* response) override;
-    };
-
-    class ArmAuthorizerServerServiceImpl final : public ihattys::v1::ArmAuthorizerServerService::Service {
+    class ArmAuthorizerServerServiceImpl final : public mavsdk::rpc::arm_authorizer_server::ArmAuthorizerServerService::Service {
     public:
         explicit ArmAuthorizerServerServiceImpl(ArmAuthState* state, const TelemetryCache* cache)
             : _state(state), _cache(cache) {}
 
-        grpc::Status subscribeArmAuthorization(
+        grpc::Status SubscribeArmAuthorization(
             grpc::ServerContext*,
-            const ihattys::v1::SubscribeArmAuthorizationRequest*,
-            grpc::ServerWriter<ihattys::v1::ArmAuthorizationResponse>* writer) override;
+            const mavsdk::rpc::arm_authorizer_server::SubscribeArmAuthorizationRequest*,
+            grpc::ServerWriter<mavsdk::rpc::arm_authorizer_server::ArmAuthorizationResponse>* writer) override;
 
-        grpc::Status acceptArmAuthorization(
+        grpc::Status AcceptArmAuthorization(
             grpc::ServerContext*,
-            const ihattys::v1::AcceptArmAuthorizationRequest*,
-            ihattys::v1::ArmAuthorizerServerResult* writer) override;
+            const mavsdk::rpc::arm_authorizer_server::AcceptArmAuthorizationRequest*,
+            mavsdk::rpc::arm_authorizer_server::AcceptArmAuthorizationResponse* writer) override;
 
-        grpc::Status rejectArmAuthorization(
+        grpc::Status RejectArmAuthorization(
             grpc::ServerContext*,
-            const ihattys::v1::RejectArmAuthorizationRequest*,
-            ihattys::v1::ArmAuthorizerServerResult* writer) override;
+            const mavsdk::rpc::arm_authorizer_server::RejectArmAuthorizationRequest*,
+            mavsdk::rpc::arm_authorizer_server::RejectArmAuthorizationResponse* writer) override;
 
     private:
         ArmAuthState* _state{};
         const TelemetryCache* _cache{};
     };
 
-    class InfoServiceImpl final : public ihattys::v1::InfoService::Service {
+    class InfoServiceImpl final : public mavsdk::rpc::info::InfoService::Service {
     public:
         explicit InfoServiceImpl(const TelemetryCache* cache) : _cache(cache) {}
         grpc::Status GetProduct(grpc::ServerContext*,
-                                const ihattys::v1::GetProductRequest*,
-                                ihattys::v1::Product* reply) override;
+                                const mavsdk::rpc::info::GetProductRequest*,
+                                mavsdk::rpc::info::GetProductResponse* reply) override;
 
         grpc::Status GetIdentification(grpc::ServerContext*,
-                                       const ihattys::v1::GetIdentificationRequest*,
-                                       ihattys::v1::Identification* reply) override;
+                                       const mavsdk::rpc::info::GetIdentificationRequest*,
+                                       mavsdk::rpc::info::GetIdentificationResponse* reply) override;
     private:
         const TelemetryCache* _cache{};
     };
@@ -244,7 +243,6 @@ private:
     // Instances
     std::unique_ptr<CoreServiceImpl>             _coreSvc;
     std::unique_ptr<TelemetryServiceImpl>        _telemetrySvc;
-    std::unique_ptr<FlightControllerServiceImpl> _fcSvc;
     std::unique_ptr<ActionServiceImpl>           _actionSvc;
     std::unique_ptr<ArmAuthorizerServerServiceImpl> _armSvc;
     std::unique_ptr<InfoServiceImpl>             _infoSvc;

@@ -114,6 +114,12 @@ endif()
 # ----------------------------------------------------------------------------
 include(Toolchain)
 
+# Workaround for MSVC object-file section limits when compiling large
+# generated protobuf/grpc translation units (e.g. telemetry.grpc.pb.cc).
+if(MSVC)
+    add_compile_options(/bigobj)
+endif()
+
 # ----------------------------------------------------------------------------
 # Output Directories
 # ----------------------------------------------------------------------------
@@ -242,6 +248,17 @@ qt_add_executable(${CMAKE_PROJECT_NAME}
     MACOSX_BUNDLE  # macOS application bundle
     ${QGC_RESOURCES}
 )
+
+# ---- Copy vcpkg runtime DLLs (for Debug/Release) ----
+if(WIN32 AND DEFINED VCPKG_INSTALLED_DIR AND DEFINED VCPKG_TARGET_TRIPLET)
+    set(_vcpkg_bin_cfg "$<IF:$<CONFIG:Debug>,debug/bin,bin>")
+    set(_vcpkg_bin_dir "${VCPKG_INSTALLED_DIR}/${VCPKG_TARGET_TRIPLET}/${_vcpkg_bin_cfg}")
+
+    add_custom_command(TARGET ${CMAKE_PROJECT_NAME} POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E make_directory "$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>"
+        COMMAND ${CMAKE_COMMAND} -E copy_directory "${_vcpkg_bin_dir}" "$<TARGET_FILE_DIR:${CMAKE_PROJECT_NAME}>"
+        COMMENT "Copying vcpkg runtime DLLs from ${_vcpkg_bin_dir}")
+endif()
 
 # ----------------------------------------------------------------------------
 # Platform-Specific Configuration

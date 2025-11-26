@@ -45,7 +45,83 @@ Rectangle {
             Layout.fillWidth:   true
             spacing:            _m
             visible:            missionItem.surveyAreaPolygon.isValid
+            SectionHeader {
+                id:                 pesticideHeader
+                Layout.fillWidth:   true
+                text:               qsTr("Pesticide Settings")
+                checked:            true
+            }
+            ColumnLayout {
+                Layout.fillWidth:   true
+                spacing:            _m
+                visible:            pesticideHeader.checked
 
+                GridLayout {
+                    readonly property real labelColWidth: ScreenTools.defaultFontPixelWidth * 12
+                    Layout.fillWidth:   true
+                    columnSpacing:      _m
+                    rowSpacing:         _m
+                    columns:            2
+
+                    QGCLabel {
+                        text:               qsTr("L/dekar")
+                        Layout.minimumWidth: parent.labelColWidth
+                        Layout.maximumWidth: parent.labelColWidth
+                        elide:              Text.ElideRight
+                    }
+                    FactTextField {
+                        fact:               missionItem.pesticideLitersPerDekar
+                        Layout.fillWidth:   true
+                    }
+                    QGCSlider {
+                        id:                     pesticideRateSlider
+                        from:                   missionItem.pesticideLitersPerDekar.min
+                        to:                     missionItem.pesticideLitersPerDekar.max
+                        stepSize:               missionItem.pesticideLitersPerDekar.increment > 0 ? missionItem.pesticideLitersPerDekar.increment : 0.01
+                        live:                   false
+                        tickmarksEnabled:       false
+                        Layout.fillWidth:       true
+                        Layout.columnSpan:      2
+                        Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
+                        value:                  missionItem.pesticideLitersPerDekar.value
+                        property bool initialized: false
+                        Component.onCompleted:  initialized = true
+                        onValueChanged: {
+                            if (!initialized) return
+                            if (pressed || activeFocus) missionItem.pesticideLitersPerDekar.value = value
+                        }
+                    }
+
+                    QGCLabel {
+                        text:               qsTr("Droplet size (um)")
+                        Layout.minimumWidth: parent.labelColWidth
+                        Layout.maximumWidth: parent.labelColWidth
+                        elide:              Text.ElideRight
+                    }
+                    FactTextField {
+                        fact:               missionItem.pesticideDropletSize
+                        Layout.fillWidth:   true
+                    }
+                    QGCSlider {
+                        id:                     dropletSizeSlider
+                        from:                   missionItem.pesticideDropletSize.min
+                        to:                     missionItem.pesticideDropletSize.max
+                        stepSize:               missionItem.pesticideDropletSize.increment > 0 ? missionItem.pesticideDropletSize.increment : 1
+                        live:                   false
+                        tickmarksEnabled:       false
+                        Layout.fillWidth:       true
+                        Layout.columnSpan:      2
+                        Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
+                        value:                  missionItem.pesticideDropletSize.value
+                        property bool initialized: false
+                        Component.onCompleted:  initialized = true
+                        onValueChanged: {
+                            if (!initialized) return
+                            if (pressed || activeFocus) missionItem.pesticideDropletSize.value = value
+                        }
+                    }
+                }
+            }
             // ===== Geometry =====
             SectionHeader {
                 id:                 geomHeader
@@ -124,43 +200,35 @@ Rectangle {
                             if (pressed || activeFocus) missionItem.lineSpacing.value = value
                         }
                     }
-
-                    // Turnaround distance (m)
+                    
+                    // Field padding (m)
                     QGCLabel {
-                        text: qsTr("Turnaround distance (m)")
+                        text: qsTr("Padding (m)")
                         Layout.minimumWidth: parent.labelColWidth
                         Layout.maximumWidth: parent.labelColWidth
                         elide: Text.ElideRight
                     }
                     FactTextField {
-                        fact:               missionItem.turnAroundDistance
+                        fact:               missionItem.fieldPadding
                         Layout.fillWidth:   true
                     }
                     QGCSlider {
-                        id:                     turnSlider
-                        from:                   0.0
-                        to:                     200.0
-                        stepSize:               0.5
+                        id:                     paddingSlider
+                        from:                   1.0
+                        to:                     50.0
+                        stepSize:               0.1
                         live:                   false
                         tickmarksEnabled:       false
                         Layout.fillWidth:       true
                         Layout.columnSpan:      2
                         Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
-                        value:                  missionItem.turnAroundDistance.value
+                        value:                  missionItem.fieldPadding.value
                         property bool initialized: false
                         Component.onCompleted:  initialized = true
                         onValueChanged: {
                             if (!initialized) return
-                            if (pressed || activeFocus) missionItem.turnAroundDistance.value = value
+                            if (pressed || activeFocus) missionItem.fieldPadding.value = value
                         }
-                    }
-
-                    QGCButton {
-                        text: qsTr("Rotate Entry")
-                        Layout.fillWidth: true
-                        onClicked: missionItem.rotateEntryPoint()
-                        ToolTip.visible: hovered
-                        ToolTip.text: qsTr("Rotate entry corner clockwise: Top Left → Top Right → Bottom Right → Bottom Left → Top Left.")
                     }
                     QGCButton {
                         text: qsTr("Calculate Route")
@@ -239,6 +307,7 @@ Rectangle {
                     }
                 }
             }
+            
 
             // ===== Notes / Future =====
             SectionHeader {

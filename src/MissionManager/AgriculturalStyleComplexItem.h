@@ -52,8 +52,11 @@ public:
 
     Q_PROPERTY(Fact* speedMode      READ speedMode      CONSTANT) // 0=Auto 1=Fixed
     Q_PROPERTY(Fact* fixedSpeed     READ fixedSpeed     CONSTANT) // m/s
+    Q_PROPERTY(Fact* pesticideLitersPerDekar READ pesticideLitersPerDekar CONSTANT)
+    Q_PROPERTY(Fact* pesticideDropletSize READ pesticideDropletSize CONSTANT)
 
     Q_PROPERTY(Fact* turnAroundDistance         READ turnAroundDistance         CONSTANT)
+    Q_PROPERTY(Fact* fieldPadding              READ fieldPadding              CONSTANT)
     Q_PROPERTY(Fact* terrainAdjustTolerance     READ terrainAdjustTolerance     CONSTANT)
     Q_PROPERTY(Fact* terrainAdjustMaxClimbRate  READ terrainAdjustMaxClimbRate  CONSTANT)
     Q_PROPERTY(Fact* terrainAdjustMaxDescentRate READ terrainAdjustMaxDescentRate CONSTANT)
@@ -73,8 +76,11 @@ public:
 
     Fact* speedMode()     { return &_speedModeFact; }
     Fact* fixedSpeed()    { return &_fixedSpeedFact; }
+    Fact* pesticideLitersPerDekar() { return &_pesticideLitersPerDekarFact; }
+    Fact* pesticideDropletSize()    { return &_pesticideDropletSizeFact; }
 
     Fact* turnAroundDistance()         { return &_turnAroundDistanceFact; }
+    Fact* fieldPadding()                { return &_fieldPaddingFact; }
     Fact* terrainAdjustTolerance()     { return &_terrainAdjustToleranceFact; }
     Fact* terrainAdjustMaxClimbRate()  { return &_terrainAdjustMaxClimbRateFact; }
     Fact* terrainAdjustMaxDescentRate(){ return &_terrainAdjustMaxDescentRateFact; }
@@ -169,6 +175,8 @@ protected:
     void _buildAndAppendMissionItems(QList<MissionItem*>& items, QObject* missionItemParent);
     void _appendWaypoint(QList<MissionItem*>& items, QObject* missionItemParent, int& seqNum,
                          MAV_FRAME mavFrame, float holdTime, const QGeoCoordinate& coordinate);
+    void _appendLoadedMissionItems(QList<MissionItem*>& items, QObject* missionItemParent);
+    void _applyPesticideCalculations();
 
     // Helpers
     QList<QLineF> _generateParallelLines(const QPolygonF& area, double spacingMeters, double angleDeg) const; // centerlines before clipping
@@ -219,11 +227,17 @@ private:
     SettingsFact _entryLocationFact;
     SettingsFact _speedModeFact;
     SettingsFact _fixedSpeedFact;
+    SettingsFact _pesticideLitersPerDekarFact;
+    SettingsFact _pesticideDropletSizeFact;
     SettingsFact _turnAroundDistanceFact;
+    SettingsFact _fieldPaddingFact;
     SettingsFact _terrainAdjustToleranceFact;
     SettingsFact _terrainAdjustMaxClimbRateFact;
     SettingsFact _terrainAdjustMaxDescentRateFact;
     SettingsFact _startDirectionFact;
+
+    QObject*            _loadedMissionItemsParent = nullptr;    ///< Parent for loaded mission items
+    QList<MissionItem*> _loadedMissionItems;                    ///< Mission items loaded from plan file
 
     // JSON keys
     static constexpr const char* _jsonKey                         = "AgriculturalStyleComplexItem";
@@ -238,7 +252,10 @@ private:
     static constexpr const char* entryLocationName                = "EntryLocation";
     static constexpr const char* speedModeName                    = "SpeedMode";
     static constexpr const char* fixedSpeedName                   = "FixedSpeed";
+    static constexpr const char* pesticideLitersPerDekarName      = "PesticideLitersPerDekar";
+    static constexpr const char* pesticideDropletSizeName         = "PesticideDropletSize";
     static constexpr const char* turnAroundDistanceName           = "TurnAroundDistanceMultiRotor"; // multirotor only
+    static constexpr const char* fieldPaddingName                 = "FieldPadding";
     static constexpr const char* terrainAdjustToleranceName       = "TerrainAdjustTolerance";
     static constexpr const char* terrainAdjustMaxClimbRateName    = "TerrainAdjustMaxClimbRate";
     static constexpr const char* terrainAdjustMaxDescentRateName  = "TerrainAdjustMaxDescentRate";

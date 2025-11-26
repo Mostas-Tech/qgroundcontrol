@@ -19,6 +19,7 @@
 #include "Vehicle.h"
 #include "tsp_route.h"
 #include "ChinesePostmanParallel.h"
+#include "TakeoffMissionItem.h"
 
 QGC_LOGGING_CATEGORY(AgriculturalStyleComplexItemLog, "AgriStyleComplexItemLog");
 
@@ -483,14 +484,20 @@ static QPolygonF _toPolyF(const QGCMapPolygon& poly) {
     return p;
 }
 
+// JSON settings name for padding
+static constexpr const char* fieldPaddingName = "FieldPadding";
+
 AgriculturalStyleComplexItem::AgriculturalStyleComplexItem(PlanMasterController* masterController, bool flyView)
     : ComplexMissionItem(masterController, flyView),
       _metaDataMap(FactMetaData::createMapFromJsonFile(QStringLiteral(":/json/Agriculture.test.json"), this)),
       _lineSpacingFact(QString("Agricultural") /*componentId*/, _metaDataMap[lineSpacingName], this),
       _gridAngleFact(QString("Agricultural"), _metaDataMap[gridAngleName], this),
       _entryLocationFact(QString("Agricultural"), _metaDataMap[entryLocationName], this),
+      _fieldPaddingFact(QString("Agricultural"), _metaDataMap[fieldPaddingName], this),
       _speedModeFact(QString("Agricultural"), _metaDataMap[speedModeName], this),
       _fixedSpeedFact(QString("Agricultural"), _metaDataMap[fixedSpeedName], this),
+    _pesticideLitersPerDekarFact(QString("Agricultural"), _metaDataMap[pesticideLitersPerDekarName], this),
+    _pesticideDropletSizeFact(QString("Agricultural"), _metaDataMap[pesticideDropletSizeName], this),
       _turnAroundDistanceFact(QString("Agricultural"), _metaDataMap[turnAroundDistanceName], this),
       _terrainAdjustToleranceFact(QString("Agricultural"), _metaDataMap[terrainAdjustToleranceName], this),
       _terrainAdjustMaxClimbRateFact(QString("Agricultural"), _metaDataMap[terrainAdjustMaxClimbRateName], this),
@@ -508,6 +515,7 @@ AgriculturalStyleComplexItem::AgriculturalStyleComplexItem(PlanMasterController*
     connect(&_lineSpacingFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
     connect(&_gridAngleFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
     connect(&_entryLocationFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
+    connect(&_fieldPaddingFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
     connect(&_turnAroundDistanceFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
     connect(&_surveyAreaPolygon, &QGCMapPolygon::pathChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
     connect(&_surveyAreaPolygon, &QGCMapPolygon::pathChanged, this, &AgriculturalStyleComplexItem::_polyChanged);
@@ -552,7 +560,37 @@ void AgriculturalStyleComplexItem::setDirty(bool dirty) {
 
 // Build a simple WP at coordinate with altitude from vehicle default (no terrain mode yet)
 void AgriculturalStyleComplexItem::_appendWaypoint(QList<MissionItem*>& items, QObject* missionItemParent, int& seqNum, MAV_FRAME mavFrame, float holdTime, const QGeoCoordinate& coordinate) {
-    double altitude = 5.0;
+    // Interpret coordinate.altitude() as a height above takeoff (relative). If the coordinate
+    // altitude is set by the user, add the planned home altitude (takeoff) to get AMSL. If no
+    // coordinate altitude is provided, use the planned home altitude as the waypoint altitude.
+    double altitude;
+    // Prefer altitude from TakeoffMissionItem when available. Fall back to planned home position altitude.
+    double takeoffAmsl = std::numeric_limits<double>::quiet_NaN();
+    if (_missionController && _missionController->takeoffMissionItem()) {
+        TakeoffMissionItem* toi = _missionController->takeoffMissionItem();
+        // If the takeoff item uses a non-relative mode, use its AMSL value. If it is relative,
+        // use the raw altitude value directly (user requested not to use home altitude).
+        if (toi->altitudeMode() == QGroundControlQmlGlobal::AltitudeModeRelative) {
+            takeoffAmsl = toi->altitude()->rawValue().toDouble();
+        } else {
+            takeoffAmsl = toi->amslEntryAlt();
+        }
+    }
+
+    // Do NOT fall back to planned home position altitude. If we don't have a TakeoffMissionItem
+    // available to provide the takeoff AMSL, fall back to a safe default of 5.0 m.
+    if (std::isfinite(coordinate.altitude())) {
+        // Only interpret coordinate.altitude() as height-above-takeoff when we have a takeoff AMSL.
+        if (std::isfinite(takeoffAmsl)) {
+            altitude = takeoffAmsl + coordinate.altitude();
+        } else {
+            // No takeoff AMSL available: fall back to default altitude
+            altitude = 5.0;
+        }
+    } else {
+        // No user altitude: use takeoff AMSL if available, otherwise a safe default.
+        altitude = std::isfinite(takeoffAmsl) ? takeoffAmsl : 5.0;
+    }
     MissionItem* item = new MissionItem(seqNum++,
                                         MAV_CMD_NAV_WAYPOINT,
                                         mavFrame,
@@ -569,32 +607,42 @@ void AgriculturalStyleComplexItem::_appendWaypoint(QList<MissionItem*>& items, Q
     items.append(item);
 }
 
-// Generate parallel centerlines (world space in lon/lat for now); caller clips
+// Generate parallel centerlines in local NED meters; caller clips
 QList<QLineF> AgriculturalStyleComplexItem::_generateParallelLines(const QPolygonF& area, double spacingMeters, double angleDeg) const {
     QList<QLineF> lines;
-    if (area.size() < 3 || spacingMeters <= 0) {
+    if (area.size() < 3 || spacingMeters <= 0.0) {
         return lines;
     }
 
-    // Very lightweight approach: compute area bbox in local frame rotated by angle
-    // NOTE: For production we should use proper meters projection. This is a first pass.
     const double rad = qDegreesToRadians(angleDeg);
-    const double cs = qCos(rad), sn = qSin(rad);
+    const double cs = qCos(rad);
+    const double sn = qSin(rad);
     auto rot = [&](const QPointF& p) { return QPointF(cs * p.x() - sn * p.y(), sn * p.x() + cs * p.y()); };
     auto irot = [&](const QPointF& p) { return QPointF(cs * p.x() + sn * p.y(), -sn * p.x() + cs * p.y()); };
 
-    QPolygonF r;
-    r.reserve(area.size());
-    for (const QPointF& p : area) r << rot(p);
-    QRectF rb = r.boundingRect();
+    QPolygonF rotated;
+    rotated.reserve(area.size());
+    for (const QPointF& p : area) {
+        rotated << rot(p);
+    }
 
-    // Create parallel lines across bbox, step by spacing
-    // We fake meters by treating lon/lat as planar small deltas (OK for small fields). TODO: replace with Geo
-    // projection.
-    const double step = spacingMeters * 1.0e-5; // rough scale placeholder; to be replaced with proper geo scale
-    for (double y = rb.top(); y <= rb.bottom(); y += step) {
-        QPointF a = irot(QPointF(rb.left(), y));
-        QPointF b = irot(QPointF(rb.right(), y));
+    const QRectF bbox = rotated.boundingRect();
+    if (bbox.height() <= 0.0 || bbox.width() <= 0.0) {
+        return lines;
+    }
+
+    // Start half-spacing in from top edge to keep coverage symmetrical
+    const double startY = bbox.top() + spacingMeters * 0.5;
+    for (double y = startY; y <= bbox.bottom() - spacingMeters * 0.5; y += spacingMeters) {
+        QPointF a = irot(QPointF(bbox.left(), y));
+        QPointF b = irot(QPointF(bbox.right(), y));
+        lines << QLineF(a, b);
+    }
+
+    if (lines.isEmpty()) {
+        const double midY = 0.5 * (bbox.top() + bbox.bottom());
+        QPointF a = irot(QPointF(bbox.left(), midY));
+        QPointF b = irot(QPointF(bbox.right(), midY));
         lines << QLineF(a, b);
     }
 
@@ -806,18 +854,49 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
 
     QGeoCoordinate plannedHome = _masterController->missionController()->takeoffCoordinate();
 
+    const double padMeters = qMax(1.0, _fieldPaddingFact.rawValue().toDouble());
+
     if (_geoFenceCircles->isEmpty() && _geoFencePolygons->isEmpty()) {
         // No fences -> simple transect generation (same basic approach as TransectStyleComplexItem)
 
-        const QPolygonF area = _toPolyF(_surveyAreaPolygon);
+        QGeoCoordinate nedRef = _surveyAreaPolygon.center();
+        if (!nedRef.isValid()) {
+            const QList<QGeoCoordinate> pts = _surveyAreaPolygon.coordinateList();
+            if (!pts.isEmpty()) {
+                nedRef = pts.first();
+            }
+        }
+
+        QPolygonF nedArea = nedRef.isValid() ? _surveyAreaToNed(nedRef) : QPolygonF();
+        if (nedArea.size() >= 3) {
+            QPolygonF shrunk = nedSurveyArea_offsett(nedArea, padMeters);
+            if (shrunk.size() >= 3) {
+                nedArea = shrunk;
+            }
+        }
+
         const double spacingMeters = _lineSpacingFact.rawValue().toDouble();
         const double angleDeg = _gridAngleFact.rawValue().toDouble();
 
-        // 2) Generate parallel lines across bounding box
-        QList<QLineF> lines = _generateParallelLines(area, spacingMeters, angleDeg);
-
-        // 3) Clip lines to polygon to produce entry/exit legs
-        QList<QList<CoordInfo_t>> legs = _clipLinesToPolygon(lines, area);
+        QList<QList<CoordInfo_t>> legs;
+        if (nedRef.isValid() && nedArea.size() >= 3) {
+            QList<QLineF> rawLines = _generateParallelLines(nedArea, spacingMeters, angleDeg);
+            QList<QLineF> clippedLines = clipLinesWithPolygon(rawLines, nedArea);
+            for (const QLineF& seg : clippedLines) {
+                QList<CoordInfo_t> leg;
+                CoordInfo_t entry;
+                CoordInfo_t exit;
+                entry.coord = nedXYToGeo(seg.p1(), nedRef);
+                exit.coord = nedXYToGeo(seg.p2(), nedRef);
+                if (!entry.coord.isValid() || !exit.coord.isValid()) {
+                    continue;
+                }
+                entry.coordType = CoordTypeSurveyEntry;
+                exit.coordType = CoordTypeSurveyExit;
+                leg << entry << exit;
+                legs << leg;
+            }
+        }
 
         // 4) Order legs according to entry location setting and create transects
         _transects = _orderLegsEntryFirst(legs);
@@ -825,20 +904,26 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
         // --- apply turn-around distance extension only in the default (no-fence) branch ---
         const double turnMeters = _turnAroundDistanceFact.rawValue().toDouble();
         if (turnMeters > 0.0) {
-            // Use same rough deg<->meter scale used by line generation
-            const double degExt = turnMeters * 1.0e-5;
+            // Extend entry/exit points by turnMeters in the direction of the transect.
+            // Use geodetic conversion for accuracy.
             for (auto& seg : _transects) {
                 if (seg.size() < 2) continue;
                 QGeoCoordinate e0 = seg.first().coord;
                 QGeoCoordinate e1 = seg.last().coord;
-                QPointF p0(e0.longitude(), e0.latitude());
-                QPointF p1(e1.longitude(), e1.latitude());
+                // Calculate direction vector in NED (meters)
+                QPointF p0 = geoToNedXY(e0, e0); // (0,0)
+                QPointF p1 = geoToNedXY(e1, e0); // vector from e0 to e1 in NED
                 QPointF dir = p1 - p0;
                 double len = qSqrt(dir.x() * dir.x() + dir.y() * dir.y());
                 if (len <= 0.0) continue;
-                QPointF ext(dir.x() / len * degExt, dir.y() / len * degExt);
-                QGeoCoordinate newEntry(e0.latitude() - ext.y(), e0.longitude() - ext.x());
-                QGeoCoordinate newExit(e1.latitude() + ext.y(), e1.longitude() + ext.x());
+                // Extension vector in NED (meters)
+                QPointF ext(dir.x() / len * turnMeters, dir.y() / len * turnMeters);
+                // New entry: move backwards from e0 by ext
+                QGeoCoordinate newEntry;
+                QGCGeo::convertNedToGeo(-ext.y(), -ext.x(), 0, e0, newEntry);
+                // New exit: move forwards from e1 by ext
+                QGeoCoordinate newExit;
+                QGCGeo::convertNedToGeo(ext.y(), ext.x(), 0, e1, newExit);
                 seg.first().coord = newEntry;
                 seg.last().coord = newExit;
             }
@@ -886,7 +971,11 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
         QPolygonF nedSurveyArea = _surveyAreaToNed(_refForNed);
         QRectF bbox = nedSurveyArea.boundingRect();
 
-        nedSurveyArea = nedSurveyArea_offsett(nedSurveyArea,2);
+        // Apply user-configurable padding: shrink working area by padding meters
+        double pad = _fieldPaddingFact.rawValue().toDouble();
+        // enforce minimum 1 meter padding as safety
+        pad = qMax(1.0, pad);
+        nedSurveyArea = nedSurveyArea_offsett(nedSurveyArea, pad);
 
         QPainterPath surveyPainterPath;
         surveyPainterPath.addPolygon(nedSurveyArea);
@@ -906,12 +995,14 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
             const QPointF nedCenter = geoToNedXY(center, _refForNed);
             const double radiusMeters = fenceCircle->radius()->rawValue().toDouble();
 
-            geom::Fence fence(geom::Circle(nedCenter, radiusMeters));
+            // Expand fence circles by padding so exclusion zones include padding
+            double fenceRadius = radiusMeters + pad;
+            geom::Fence fence(geom::Circle(nedCenter, fenceRadius));
             if (fence.isValid()) {
                 nedFences.append(fence);
 
                 QPainterPath circlePath;
-                circlePath.addEllipse(nedCenter, radiusMeters, radiusMeters);
+                circlePath.addEllipse(nedCenter, fenceRadius, fenceRadius);
                 surveyPainterPath = surveyPainterPath.subtracted(circlePath).simplified();
             }
         }
@@ -921,7 +1012,8 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
             if (!fp) continue;
 
             QPolygonF nedPoly = fencePolygonToNed(fp, _refForNed);
-            QPolygonF nedPolybig = nedSurveyArea_offsett(nedPoly,-2);
+            // Expand fence polygon by padding so exclusion zones include padding
+            QPolygonF expandedNedPoly = nedSurveyArea_offsett(nedPoly, -pad);
 
             std::vector<QPointF> verts;
             verts.reserve(nedPoly.size());
@@ -931,10 +1023,10 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
                 nedFences.append(f);
 
                 QPainterPath polyPath;
-                polyPath.addPolygon(nedPolybig);
+                polyPath.addPolygon(expandedNedPoly);
                 surveyPainterPath = surveyPainterPath.subtracted(polyPath).simplified();
 
-                lines = subtractFence(lines,nedPolybig);
+                lines = subtractFence(lines,expandedNedPoly);
                 fences.append(nedPoly);
             }
         }
@@ -960,17 +1052,18 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
             qWarning() << "Route too short:" << path.size();
             _visualTransectPoints.clear();
             _transects.clear();
-            emit visualTransectPointsChanged();
-            emit readyForSaveStateChanged();
-            setDirty(true);
-            return;
         }
-
-        qDebug() << "Resulting route (" << path.size() << " points ):";
+        qCDebug(AgriculturalStyleComplexItemLog) << "Resulting route (" << path.size() << " points ):";
         double total = 0.0;
         for (int i = 0; i < path.size(); ++i) {
             if (i > 0) total += QLineF(path[i-1], path[i]).length();
         }
+        qCDebug(AgriculturalStyleComplexItemLog) << "Approx. total route length:" << total;
+
+        _visualTransectPoints.clear();
+        _transects.clear();
+
+        qCDebug(AgriculturalStyleComplexItemLog) << "clean" << total;
         qDebug() << "Approx. total route length:" << total;
 
         _visualTransectPoints.clear();
@@ -1026,7 +1119,10 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
 
     // 2) Tell controller to recompute the overall mission path
     _masterController->missionController()->recalcTerrainProfile();
-
+    if (_isIncomplete) {
+        _isIncomplete = false;
+        emit isIncompleteChanged();
+    }
     setDirty(true);
     return;
 }
@@ -1036,6 +1132,10 @@ void AgriculturalStyleComplexItem::_polyChanged() {
 }
 
 int AgriculturalStyleComplexItem::lastSequenceNumber(void) const {
+    if (_loadedMissionItems.count()) {
+        return _sequenceNumber + _loadedMissionItems.count() - 1;
+    }
+
     int itemCount = 0;
     for (const QList<CoordInfo_t>& seg : _transects) {
         itemCount += seg.count();
@@ -1059,13 +1159,36 @@ double AgriculturalStyleComplexItem::specifiedFlightSpeed(void) {
 }
 
 void AgriculturalStyleComplexItem::appendMissionItems(QList<MissionItem*>& items, QObject* missionItemParent) {
-    // For base class we only create NAV_WAYPOINTs along legs and pure turnarounds as geometry.
-    // Derived classes (Spray/Spreader) will inject SCRIPT_TIME start/stop around productive legs.
-    _buildAndAppendMissionItems(items, missionItemParent);
+    // If we have mission items loaded from a saved plan, use those so reload reproduces exact items.
+    if (_loadedMissionItems.count()) {
+        _appendLoadedMissionItems(items, missionItemParent);
+    } else {
+        // For base class we only create NAV_WAYPOINTs along legs and pure turnarounds as geometry.
+        // Derived classes (Spray/Spreader) will inject SCRIPT_TIME start/stop around productive legs.
+        _buildAndAppendMissionItems(items, missionItemParent);
+    }
+}
+
+void AgriculturalStyleComplexItem::_appendLoadedMissionItems(QList<MissionItem*>& items, QObject* missionItemParent)
+{
+    int seqNum = _sequenceNumber;
+
+    for (const MissionItem* loadedMissionItem: _loadedMissionItems) {
+        MissionItem* item = new MissionItem(*loadedMissionItem, missionItemParent);
+        item->setSequenceNumber(seqNum++);
+        items.append(item);
+    }
+}
+
+void AgriculturalStyleComplexItem::_applyPesticideCalculations()
+{
+    // Placeholder for future pesticide application calculations using user-provided inputs.
 }
 
 void AgriculturalStyleComplexItem::_buildAndAppendMissionItems(QList<MissionItem*>& items, QObject* missionItemParent) {
     int seqNum = _sequenceNumber;
+
+    _applyPesticideCalculations();
 
     // Optionally set speed when fixed. We keep it simple: one DO_CHANGE_SPEED at the beginning.
     if (_speedModeFact.rawValue().toInt() == SpeedModeFixed) {
@@ -1166,6 +1289,8 @@ void AgriculturalStyleComplexItem::save(QJsonArray& planItems) {
     inner[entryLocationName] = _entryLocationFact.rawValue().toInt();
     inner[speedModeName] = _speedModeFact.rawValue().toInt();
     inner[fixedSpeedName] = _fixedSpeedFact.rawValue().toDouble();
+    inner[pesticideLitersPerDekarName] = _pesticideLitersPerDekarFact.rawValue().toDouble();
+    inner[pesticideDropletSizeName] = _pesticideDropletSizeFact.rawValue().toDouble();
     inner[turnAroundDistanceName] = _turnAroundDistanceFact.rawValue().toDouble();
     // Terrain placeholders saved only when we later enable terrain mode
 
@@ -1220,13 +1345,37 @@ bool AgriculturalStyleComplexItem::load(const QJsonObject& complexObject, int se
     _entryLocationFact.setRawValue(inner.value(entryLocationName).toInt(_entryLocationFact.rawValue().toInt()));
     _speedModeFact.setRawValue(inner.value(speedModeName).toInt(_speedModeFact.rawValue().toInt()));
     _fixedSpeedFact.setRawValue(inner.value(fixedSpeedName).toDouble(_fixedSpeedFact.rawValue().toDouble()));
+    _pesticideLitersPerDekarFact.setRawValue(
+        inner.value(pesticideLitersPerDekarName).toDouble(_pesticideLitersPerDekarFact.rawValue().toDouble()));
+    _pesticideDropletSizeFact.setRawValue(
+        inner.value(pesticideDropletSizeName).toDouble(_pesticideDropletSizeFact.rawValue().toDouble()));
     _turnAroundDistanceFact.setRawValue(
         inner.value(turnAroundDistanceName).toDouble(_turnAroundDistanceFact.rawValue().toDouble()));
 
     // Load visuals
     if (inner.contains(_jsonVisualTransectPointsKey)) {
-        // TODO: parse visuals if needed; not required for function.
-        // Keeping it ignored for now to avoid schema/version mismatches.
+        if (!JsonHelper::loadGeoCoordinateArray(inner[_jsonVisualTransectPointsKey], false /* altitudeRequired */, _visualTransectPoints, errorString)) {
+            _ignoreRecalc = false;
+            return false;
+        }
+        _coordinate = _visualTransectPoints.count() ? _visualTransectPoints.first().value<QGeoCoordinate>() : QGeoCoordinate();
+        _exitCoordinate = _visualTransectPoints.count() ? _visualTransectPoints.last().value<QGeoCoordinate>() : QGeoCoordinate();
+        _isIncomplete = false;
+    }
+
+    // Load generated mission items snapshot (so reload reproduces exact mission items)
+    if (inner.contains(_jsonItemsKey)) {
+        _loadedMissionItemsParent = new QObject(this);
+        QJsonArray missionItemsJsonArray = inner[_jsonItemsKey].toArray();
+        for (const QJsonValue missionItemJson: missionItemsJsonArray) {
+            MissionItem* missionItem = new MissionItem(_loadedMissionItemsParent);
+            if (!missionItem->load(missionItemJson.toObject(), 0 /* sequenceNumber */, errorString)) {
+                _loadedMissionItemsParent->deleteLater();
+                _loadedMissionItemsParent = nullptr;
+                return false;
+            }
+            _loadedMissionItems.append(missionItem);
+        }
     }
 
     _ignoreRecalc = false;

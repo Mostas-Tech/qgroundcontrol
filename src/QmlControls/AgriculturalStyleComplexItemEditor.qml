@@ -121,6 +121,25 @@ Rectangle {
                         }
                     }
                 }
+
+                QGCButton {
+                    Layout.fillWidth:   true
+                    text:               missionItem.sprayParametersConfirmed ? qsTr("Regenerate Transects") : qsTr("Generate Transects")
+                    visible:            missionItem.surveyAreaPolygon.isValid
+                    enabled:            missionItem.pesticideLitersPerDekar.value > 0 && missionItem.pesticideDropletSize.value > 0
+                    onClicked:          missionItem.confirmSprayParameters()
+                    ToolTip.visible:    hovered
+                    ToolTip.text:       missionItem.sprayParametersConfirmed
+                                            ? qsTr("Rebuilds geometry with the latest spray parameters.")
+                                            : qsTr("Creates transects once the droplet size and rate are provided.")
+                }
+            }
+            QGCLabel {
+                Layout.fillWidth:   true
+                wrapMode:           Text.WordWrap
+                visible:            missionItem.surveyAreaPolygon.isValid && !missionItem.sprayParametersConfirmed
+                color:              qgcPal.warningText
+                text:               qsTr("Enter droplet size and application rate, then select Generate Transects to build the spray path.")
             }
             // ===== Geometry =====
             SectionHeader {
@@ -128,12 +147,13 @@ Rectangle {
                 Layout.fillWidth:   true
                 text:               qsTr("Geometry")
                 checked:            true
+                visible:            missionItem.sprayParametersConfirmed
             }
 
             ColumnLayout {
                 Layout.fillWidth:   true
                 spacing:            _m
-                visible:            geomHeader.checked
+                visible:            missionItem.sprayParametersConfirmed && geomHeader.checked
 
                 GridLayout {
                     // ---- Shared layout tuning for this grid ----
@@ -239,74 +259,6 @@ Rectangle {
                     }
                 }
             }
-
-            // ===== Speed =====
-            SectionHeader {
-                id:                 speedHeader
-                Layout.fillWidth:   true
-                text:               qsTr("Speed")
-                checked:            true
-            }
-
-            ColumnLayout {
-                Layout.fillWidth:   true
-                spacing:            _m
-                visible:            speedHeader.checked
-
-                GridLayout {
-                    readonly property real labelColWidth: ScreenTools.defaultFontPixelWidth * 12
-                    Layout.fillWidth:   true
-                    columnSpacing:      _m
-                    rowSpacing:         _m
-                    columns:            2
-
-                    // Speed mode (0 Auto, 1 Fixed)
-                    QGCLabel {
-                        text: qsTr("Manual speed")
-                        Layout.minimumWidth: parent.labelColWidth
-                        Layout.maximumWidth: parent.labelColWidth
-                        elide: Text.ElideRight
-                    }
-                    QGCCheckBox {
-                        id:         manualSpeedCheck
-                        checked:    missionItem.speedMode.value === 1
-                        onClicked:  missionItem.speedMode.value = checked ? 1 : 0
-                    }
-
-                    // Fixed speed (m/s)
-                    QGCLabel {
-                        text:    qsTr("Manual speed (m/s)")
-                        enabled: manualSpeedCheck.checked
-                        Layout.minimumWidth: parent.labelColWidth
-                        Layout.maximumWidth: parent.labelColWidth
-                        elide: Text.ElideRight
-                    }
-                    FactTextField {
-                        fact:       missionItem.fixedSpeed
-                        enabled:    manualSpeedCheck.checked
-                        Layout.fillWidth: true
-                    }
-                    QGCSlider {
-                        id:                     speedSlider
-                        from:                   0.0
-                        to:                     30.0
-                        stepSize:               0.1
-                        live:                   false
-                        tickmarksEnabled:       false
-                        enabled:                manualSpeedCheck.checked
-                        Layout.fillWidth:       true
-                        Layout.columnSpan:      2
-                        Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
-                        value:                  missionItem.fixedSpeed.value
-                        property bool initialized: false
-                        Component.onCompleted:  initialized = true
-                        onValueChanged: {
-                            if (!initialized) return
-                            if (pressed || activeFocus) missionItem.fixedSpeed.value = value
-                        }
-                    }
-                }
-            }
             
 
             // ===== Notes / Future =====
@@ -315,11 +267,12 @@ Rectangle {
                 Layout.fillWidth:   true
                 text:               qsTr("Notes")
                 checked:            false
+                visible:            missionItem.sprayParametersConfirmed
             }
             ColumnLayout {
                 Layout.fillWidth:   true
                 spacing:            _m
-                visible:            notesHeader.checked
+                visible:            missionItem.sprayParametersConfirmed && notesHeader.checked
 
                 QGCLabel {
                     Layout.fillWidth: true

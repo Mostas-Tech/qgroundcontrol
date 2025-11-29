@@ -18,6 +18,9 @@ Item {
 
     property var    _planMasterController:      planMasterController
     property var    _currentMissionItem:        _planMasterController.missionController.currentPlanViewItem ///< Mission item to display status for
+    readonly property string _agriculturalCommandName: qsTranslate("AgriculturalStyleComplexItem", "Agricultural")
+    readonly property string _sprayCommandName:        qsTranslate("SprayComplexItem", "Spray")
+    readonly property int _speedModeFixed: 1
 
     property var    missionItems:               _controllerValid ? _planMasterController.missionController.visualItems : undefined
     property real   missionPlannedDistance:     _controllerValid ? _planMasterController.missionController.missionPlannedDistance : NaN
@@ -31,6 +34,11 @@ Item {
     property var    _controllerSyncInProgress:  _controllerValid ? _planMasterController.syncInProgress : false
 
     property bool   _currentMissionItemValid:   _currentMissionItem && _currentMissionItem !== undefined && _currentMissionItem !== null
+    property bool   _currentItemIsAgricultural: _currentMissionItemValid &&
+                                                (_currentMissionItem.commandName === _agriculturalCommandName ||
+                                                 _currentMissionItem.commandName === _sprayCommandName)
+    property bool   _agStatsVisible:            _currentItemIsAgricultural && _currentMissionItem.sprayParametersConfirmed
+    property bool   _agSolutionValid:           _agStatsVisible && _currentMissionItem.spraySolutionValid
     property bool   _curreItemIsFlyThrough:     _currentMissionItemValid && _currentMissionItem.specifiesCoordinate && !_currentMissionItem.isStandaloneCoordinate
     property bool   _currentItemIsVTOLTakeoff:  _currentMissionItemValid && _currentMissionItem.command == 84
     property bool   _missionValid:              missionItems !== undefined
@@ -66,6 +74,19 @@ Item {
     property string _missionMaxTelemetryText:       isNaN(_missionMaxTelemetry) ?       "-.-" : QGroundControl.unitsConversion.metersToAppSettingsHorizontalDistanceUnits(_missionMaxTelemetry).toFixed(0) + " " + QGroundControl.unitsConversion.appSettingsHorizontalDistanceUnitsString
     property string _batteryChangePointText:        _batteryChangePoint < 0 ?           qsTr("N/A") : _batteryChangePoint
     property string _batteriesRequiredText:         _batteriesRequired < 0 ?            qsTr("N/A") : _batteriesRequired
+    property string _agVehicleSpeedText:            _agStatsVisible ? _calculateAgVehicleSpeedText() : "-.-"
+    property string _agFlowRateText:                _agSolutionValid ? formatFlow(_currentMissionItem.recommendedFlowRate) : "-.-"
+    property string _agTotalLengthText:             _agStatsVisible ? formatHorizontalDistance(_currentMissionItem.complexDistance) : "-.-"
+    property string _agSpacingText:                 _agStatsVisible && _currentMissionItem.lineSpacing ? formatHorizontalDistance(_currentMissionItem.lineSpacing.value) : "-.-"
+    property real   _agAirtimeSeconds:              _agStatsVisible ? _calculateAgAirtimeSeconds() : NaN
+    property string _agAirtimeText:                 _agStatsVisible ? formatDuration(_agAirtimeSeconds) : "-.-"
+    property string _agTotalLitersText:             _agSolutionValid ? _calculateAgTotalLitersText() : "-.-"
+    property string _agAreaText: {
+        if (!_agStatsVisible || !_currentMissionItem.surveyAreaPolygon || !_currentMissionItem.surveyAreaPolygon.isValid) {
+            return "-.-"
+        }
+        return formatDekarArea(_currentMissionItem.surveyAreaPolygon.area)
+    }
 
     readonly property real _margins: ScreenTools.defaultFontPixelWidth
 
@@ -89,6 +110,109 @@ Item {
         return complete
     }
 
+    function formatHorizontalDistance(meters) {
+        if (isNaN(meters)) {
+            return "-.-"
+        }
+        const value = QGroundControl.unitsConversion.metersToAppSettingsHorizontalDistanceUnits(meters)
+        return value.toFixed(1) + " " + QGroundControl.unitsConversion.appSettingsHorizontalDistanceUnitsString
+    }
+
+    function formatSpeed(mps) {
+        if (isNaN(mps)) {
+            return "-.-"
+        }
+        const value = QGroundControl.unitsConversion.metersSecondToAppSettingsSpeedUnits(mps)
+        return value.toFixed(1) + " " + QGroundControl.unitsConversion.appSettingsSpeedUnitsString
+    }
+
+    function formatArea(squareMeters) {
+        if (isNaN(squareMeters)) {
+            return "-.-"
+        }
+        const value = QGroundControl.unitsConversion.squareMetersToAppSettingsAreaUnits(squareMeters)
+        return value.toFixed(1) + " " + QGroundControl.unitsConversion.appSettingsAreaUnitsString
+    }
+
+    function formatDekarArea(squareMeters) {
+        if (isNaN(squareMeters)) {
+            return "-.-"
+        }
+        const value = squareMeters / 1000.0
+        return qsTr("%1 dekar").arg(value.toFixed(1))
+    }
+
+    function formatFlow(litersPerMinute) {
+        if (isNaN(litersPerMinute)) {
+            return "-.-"
+        }
+        return litersPerMinute.toFixed(2) + " " + qsTr("L/min")
+    }
+
+    function formatDuration(seconds) {
+        if (!isFinite(seconds) || seconds <= 0) {
+            return "-.-"
+        }
+
+        const totalSeconds = Math.round(seconds)
+        const hours = Math.floor(totalSeconds / 3600)
+        const minutes = Math.floor((totalSeconds % 3600) / 60)
+        const secs = totalSeconds % 60
+
+        if (hours > 0) {
+            return qsTr("%1h %2m %3s").arg(hours).arg(minutes).arg(secs)
+        }
+        if (minutes > 0) {
+            return qsTr("%1m %2s").arg(minutes).arg(secs)
+        }
+        return qsTr("%1s").arg(secs)
+    }
+
+    function _calculateAgVehicleSpeedText() {
+        if (!_currentMissionItem) {
+            return "-.-"
+        }
+
+        const recommended = _currentMissionItem.recommendedVehicleSpeed
+        console.log("_calculateAgVehicleSpeedText recommended: " + recommended)
+        if (!isNaN(recommended)) {
+            return formatSpeed(recommended)
+        }
+        return "-.-"
+    }
+
+    function _calculateAgAirtimeSeconds() {
+        if (!_currentMissionItem) {
+            return NaN
+        }
+
+        const totalLength = _currentMissionItem.complexDistance
+        const speed = _currentMissionItem.recommendedVehicleSpeed
+        if (isNaN(totalLength) || isNaN(speed) || speed <= 0) {
+            return NaN
+        }
+
+        return totalLength / speed
+    }
+
+    function _calculateAgTotalLitersText() {
+        if (!_currentMissionItem) {
+            return "-.-"
+        }
+
+        const totalLength = _currentMissionItem.complexDistance
+        const speed = _currentMissionItem.recommendedVehicleSpeed
+        const flowRate = _currentMissionItem.recommendedFlowRate
+        
+        if (isNaN(totalLength) || isNaN(speed) || speed <= 0 || isNaN(flowRate) || flowRate <= 0) {
+            return "-.-"
+        }
+
+        const airtimeSeconds = totalLength / speed
+        const liters = flowRate * (airtimeSeconds / 60)
+        return qsTr("%1 L").arg(liters.toFixed(1))
+    }
+
     RowLayout {
         id:                     missionStats
         anchors.top:            parent.top
@@ -103,6 +227,7 @@ Item {
             enabled:     _utmspEnabled ? !_controllerSyncInProgress && UTMSPStateStorage.enableMissionUploadButton : !_controllerSyncInProgress
             visible:     !_controllerOffline && !_controllerSyncInProgress
             primary:     _controllerDirty
+            Layout.alignment: Qt.AlignTop
             onClicked: {
                 if (_utmspEnabled) {
                     QGroundControl.utmspManager.utmspVehicle.triggerActivationStatusBar(true);
@@ -127,6 +252,7 @@ Item {
             columns:                8
             rowSpacing:             _rowSpacing
             columnSpacing:          _labelToValueSpacing
+            
 
             QGCLabel {
                 text:               qsTr("Selected Waypoint")
@@ -180,6 +306,7 @@ Item {
             columns:                5
             rowSpacing:             _rowSpacing
             columnSpacing:          _labelToValueSpacing
+            
 
             QGCLabel {
                 text:               qsTr("Total Mission")
@@ -216,6 +343,7 @@ Item {
             rowSpacing:             _rowSpacing
             columnSpacing:          _labelToValueSpacing
             visible:                _batteryInfoAvailable
+            
 
             QGCLabel {
                 text:               qsTr("Battery")
@@ -228,6 +356,70 @@ Item {
                 text:                   _batteriesRequiredText
                 font.pointSize:         _dataFontSize
                 Layout.minimumWidth:    _mediumValueWidth
+            }
+        }
+
+        GridLayout {
+            columns:                8
+            rowSpacing:             _rowSpacing
+            columnSpacing:          _labelToValueSpacing
+            visible:                _agStatsVisible
+            
+
+            QGCLabel {
+                text:               qsTr("Agricultural Stats")
+                Layout.columnSpan:  8
+                font.pointSize:     ScreenTools.smallFontPointSize
+            }
+
+            QGCLabel { text: qsTr("Vehicle speed:"); font.pointSize: _dataFontSize }
+            QGCLabel {
+                text:                   _agVehicleSpeedText
+                font.pointSize:         _dataFontSize
+                Layout.minimumWidth:    _largeValueWidth
+            }
+
+            Item { width: 1; height: 1 }
+
+            QGCLabel { text: qsTr("Flow rate:"); font.pointSize: _dataFontSize }
+            QGCLabel {
+                text:                   _agFlowRateText
+                font.pointSize:         _dataFontSize
+                Layout.minimumWidth:    _largeValueWidth
+            }
+
+            Item { width: 1; height: 1 }
+
+            QGCLabel { text: qsTr("Total length:"); font.pointSize: _dataFontSize }
+            QGCLabel {
+                text:                   _agTotalLengthText
+                font.pointSize:         _dataFontSize
+                Layout.minimumWidth:    _largeValueWidth
+            }
+
+            QGCLabel { text: qsTr("Approx airtime:"); font.pointSize: _dataFontSize }
+            QGCLabel {
+                text:                   _agAirtimeText
+                font.pointSize:         _dataFontSize
+                Layout.minimumWidth:    _largeValueWidth
+            }
+
+            Item { width: 1; height: 1 }
+
+            QGCLabel { text: qsTr("Total area:"); font.pointSize: _dataFontSize }
+            QGCLabel {
+                text:                   _agAreaText
+                font.pointSize:         _dataFontSize
+                Layout.minimumWidth:    _largeValueWidth
+            }
+
+            Item { width: 1; height: 1 }
+
+            QGCLabel { text: qsTr("Total volume:"); font.pointSize: _dataFontSize }
+            QGCLabel {
+                text:                   _agTotalLitersText
+                font.pointSize:         _dataFontSize
+                Layout.minimumWidth:    _largeValueWidth
             }
         }
     }

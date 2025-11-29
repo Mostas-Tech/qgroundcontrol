@@ -70,6 +70,8 @@ target_sources(${CMAKE_PROJECT_NAME}
         SimpleMissionItem.h
         SpeedSection.cc
         SpeedSection.h
+        SprayOptimizer.cc
+        SprayOptimizer.h
         StructureScanComplexItem.cc
         StructureScanComplexItem.h
         StructureScanPlanCreator.cc

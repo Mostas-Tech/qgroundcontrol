@@ -90,6 +90,15 @@
       "longDescription": "Target droplet diameter in micrometers for the spray system."
     },
     {
+      "name": "SpraySpeedProfile",
+      "type": "uint32",
+      "default": 0,
+      "enumStrings": "Normal,Fast",
+      "enumValues": "0,1",
+      "shortDescription": "Speed profile",
+      "longDescription": "Normal selects 30% of the feasible speed band, Fast selects 80%."
+    },
+    {
       "name": "TurnAroundDistanceMultiRotor",
       "type": "double",
       "default": 0.0,

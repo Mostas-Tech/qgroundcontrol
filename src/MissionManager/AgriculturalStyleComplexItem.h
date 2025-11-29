@@ -19,6 +19,7 @@ class PlanMasterController;
 class QmlObjectListModel;
 class QGCFencePolygon;
 class QGCFenceCircle;
+class Vehicle;
 
 Q_DECLARE_LOGGING_CATEGORY(AgriculturalStyleComplexItemLog)
 
@@ -54,6 +55,12 @@ public:
     Q_PROPERTY(Fact* fixedSpeed     READ fixedSpeed     CONSTANT) // m/s
     Q_PROPERTY(Fact* pesticideLitersPerDekar READ pesticideLitersPerDekar CONSTANT)
     Q_PROPERTY(Fact* pesticideDropletSize READ pesticideDropletSize CONSTANT)
+    Q_PROPERTY(Fact* spraySpeedProfile READ spraySpeedProfile CONSTANT)
+    Q_PROPERTY(double recommendedVehicleSpeed READ recommendedVehicleSpeed NOTIFY spraySolutionChanged)
+    Q_PROPERTY(double recommendedFlowRate    READ recommendedFlowRate    NOTIFY spraySolutionChanged)
+    Q_PROPERTY(bool   spraySolutionValid     READ spraySolutionValid     NOTIFY spraySolutionChanged)
+    Q_PROPERTY(QString spraySolutionStatus   READ spraySolutionStatus   NOTIFY spraySolutionChanged)
+    Q_PROPERTY(bool sprayParametersConfirmed READ sprayParametersConfirmed NOTIFY sprayParametersConfirmedChanged)
 
     Q_PROPERTY(Fact* turnAroundDistance         READ turnAroundDistance         CONSTANT)
     Q_PROPERTY(Fact* fieldPadding              READ fieldPadding              CONSTANT)
@@ -63,6 +70,9 @@ public:
 
     Q_INVOKABLE void rotateEntryPoint(); // callable from QML
     Q_INVOKABLE void updatetransect();   // callable from QML
+    Q_INVOKABLE void recalcMissionItems();
+    Q_INVOKABLE void confirmSprayParameters();
+
 
     // Accessors for QML
     QGCMapPolygon* surveyAreaPolygon() { return &_surveyAreaPolygon; }
@@ -78,6 +88,12 @@ public:
     Fact* fixedSpeed()    { return &_fixedSpeedFact; }
     Fact* pesticideLitersPerDekar() { return &_pesticideLitersPerDekarFact; }
     Fact* pesticideDropletSize()    { return &_pesticideDropletSizeFact; }
+    Fact* spraySpeedProfile()       { return &_spraySpeedProfileFact; }
+    double recommendedVehicleSpeed() const { return _recommendedVehicleSpeed; }
+    double recommendedFlowRate() const { return _recommendedFlowRate; }
+    bool   spraySolutionValid() const { return _spraySolutionValid; }
+    QString spraySolutionStatus() const { return _spraySolutionStatus; }
+    bool sprayParametersConfirmed() const { return _sprayParametersConfirmed; }
 
     Fact* turnAroundDistance()         { return &_turnAroundDistanceFact; }
     Fact* fieldPadding()                { return &_fieldPaddingFact; }
@@ -148,10 +164,17 @@ public:
         SpeedModeFixed = 1    ///< Use fixedSpeed (m/s)
     };
 
+    enum SpraySpeedProfile {
+        SpraySpeedProfileNormal = 0,
+        SpraySpeedProfileFast   = 1,
+    };
+
 signals:
     void visualTransectPointsChanged();
     void visualFieldTransectPairsChanged();
     void fieldPolygonsMapChanged();
+    void spraySolutionChanged();
+    void sprayParametersConfirmedChanged();
 
 protected:
     // Row/leg geometry representation (like Transect but camera-agnostic)
@@ -170,6 +193,14 @@ protected:
     // Recalc legs when inputs change
     void _rebuildTransects();
     void _recalcComplexDistance();
+    void _bindVehicleParameterFactsIfNeeded();
+    void _handleVehicleParametersReady(bool ready);
+    void _handleManagerVehicleChanged(Vehicle* vehicle);
+    void _resetVehicleParameterFacts();
+    void _handleSprayInputsEdited();
+    bool _sprayInputsValid() const;
+    void _setSprayParametersConfirmed(bool confirmed);
+    void _applyOptimizedSpacing(double spacingMeters);
 
     // Builders
     void _buildAndAppendMissionItems(QList<MissionItem*>& items, QObject* missionItemParent);
@@ -229,12 +260,28 @@ private:
     SettingsFact _fixedSpeedFact;
     SettingsFact _pesticideLitersPerDekarFact;
     SettingsFact _pesticideDropletSizeFact;
+    SettingsFact _spraySpeedProfileFact;
     SettingsFact _turnAroundDistanceFact;
     SettingsFact _fieldPaddingFact;
     SettingsFact _terrainAdjustToleranceFact;
     SettingsFact _terrainAdjustMaxClimbRateFact;
     SettingsFact _terrainAdjustMaxDescentRateFact;
     SettingsFact _startDirectionFact;
+
+    Fact* _vehicleMinSpeedFact = nullptr;
+    Fact* _vehicleMaxSpeedFact = nullptr;
+    Fact* _vehicleMinFlowFact = nullptr;
+    Fact* _vehicleMaxFlowFact = nullptr;
+    bool  _vehicleParamFactsBound = false;
+    Vehicle* _vehicleFactSource = nullptr;
+
+    double  _recommendedVehicleSpeed = qQNaN();
+    double  _recommendedFlowRate = qQNaN();
+    bool    _spraySolutionValid = false;
+    QString _spraySolutionStatus;
+    bool    _sprayParametersConfirmed = false;
+    double  _lastOptimizedSpacing = qQNaN();
+    bool    _lastOptimizedSpacingValid = false;
 
     QObject*            _loadedMissionItemsParent = nullptr;    ///< Parent for loaded mission items
     QList<MissionItem*> _loadedMissionItems;                    ///< Mission items loaded from plan file
@@ -245,6 +292,7 @@ private:
     static constexpr const char* _jsonVisualFieldTransectPairsKey = "visualFieldTransectPairs";
     static constexpr const char* _jsonItemsKey                    = "Items";
     static constexpr const char* _jsonVehicleSpeedKey             = "VehicleSpeed"; // reserved for future terrain mode
+    static constexpr const char* _jsonSprayInputsConfirmedKey     = "sprayInputsConfirmed";
 
     // Settings names (must match Agriculture.SettingsGroup.json)
     static constexpr const char* lineSpacingName                  = "LineSpacing";
@@ -254,6 +302,7 @@ private:
     static constexpr const char* fixedSpeedName                   = "FixedSpeed";
     static constexpr const char* pesticideLitersPerDekarName      = "PesticideLitersPerDekar";
     static constexpr const char* pesticideDropletSizeName         = "PesticideDropletSize";
+    static constexpr const char* spraySpeedProfileName            = "SpraySpeedProfile";
     static constexpr const char* turnAroundDistanceName           = "TurnAroundDistanceMultiRotor"; // multirotor only
     static constexpr const char* fieldPaddingName                 = "FieldPadding";
     static constexpr const char* terrainAdjustToleranceName       = "TerrainAdjustTolerance";

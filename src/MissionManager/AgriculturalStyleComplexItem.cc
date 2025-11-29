@@ -4,6 +4,7 @@
 #include <QtCore/QJsonArray>
 #include <QtMath>
 #include <algorithm>
+#include <cmath>
 #include <limits>
 #include "GeoFenceController.h"
 #include "JsonHelper.h"
@@ -17,11 +18,40 @@
 #include "QGCLoggingCategory.h"
 #include "QmlObjectListModel.h"
 #include "Vehicle.h"
+#include "ParameterManager.h"
 #include "tsp_route.h"
 #include "ChinesePostmanParallel.h"
 #include "TakeoffMissionItem.h"
+#include "SprayOptimizer.h"
 
 QGC_LOGGING_CATEGORY(AgriculturalStyleComplexItemLog, "AgriStyleComplexItemLog");
+
+namespace {
+
+constexpr double kSquareMetersPerDekar = 1000.0;
+constexpr double kSecondsPerMinute = 60.0;
+
+const QString kVehicleSpeedMinParamName = QStringLiteral("MANUF_GSPD_MIN");
+const QString kVehicleSpeedMaxParamName = QStringLiteral("MANUF_GSPD_MAX");
+const QString kVehicleFlowMinParamName = QStringLiteral("MANUF_FLOW_MIN");
+const QString kVehicleFlowMaxParamName = QStringLiteral("MANUF_FLOW_MAX");
+
+bool factValueToDouble(Fact* fact, double& outValue)
+{
+    if (!fact) {
+        return false;
+    }
+
+    bool ok = false;
+    const double candidate = fact->rawValue().toDouble(&ok);
+    if (!ok) {
+        return false;
+    }
+    outValue = candidate;
+    return true;
+}
+
+} // namespace
 
 QPointF geoToNedXY(const QGeoCoordinate& geo, const QGeoCoordinate& ref) {
     double x = 0, y = 0, z = 0;
@@ -121,7 +151,7 @@ auto toGeoSafe = [](const QPointF& p,const QGeoCoordinate& ref) {
     return nedXYToGeo(p, ref);
 };
 
-QPolygonF nedSurveyArea_offsett(const QPolygonF& nedSurveyArea, double offset) {
+QPolygonF nedSurveyArea_offset(const QPolygonF& nedSurveyArea, double offset) {
     if (nedSurveyArea.size() < 3 || qFuzzyIsNull(offset)) {
         return nedSurveyArea;
     }
@@ -489,23 +519,30 @@ static constexpr const char* fieldPaddingName = "FieldPadding";
 
 AgriculturalStyleComplexItem::AgriculturalStyleComplexItem(PlanMasterController* masterController, bool flyView)
     : ComplexMissionItem(masterController, flyView),
-      _metaDataMap(FactMetaData::createMapFromJsonFile(QStringLiteral(":/json/Agriculture.test.json"), this)),
-      _lineSpacingFact(QString("Agricultural") /*componentId*/, _metaDataMap[lineSpacingName], this),
-      _gridAngleFact(QString("Agricultural"), _metaDataMap[gridAngleName], this),
-      _entryLocationFact(QString("Agricultural"), _metaDataMap[entryLocationName], this),
-      _fieldPaddingFact(QString("Agricultural"), _metaDataMap[fieldPaddingName], this),
-      _speedModeFact(QString("Agricultural"), _metaDataMap[speedModeName], this),
-      _fixedSpeedFact(QString("Agricultural"), _metaDataMap[fixedSpeedName], this),
-    _pesticideLitersPerDekarFact(QString("Agricultural"), _metaDataMap[pesticideLitersPerDekarName], this),
-    _pesticideDropletSizeFact(QString("Agricultural"), _metaDataMap[pesticideDropletSizeName], this),
-      _turnAroundDistanceFact(QString("Agricultural"), _metaDataMap[turnAroundDistanceName], this),
-      _terrainAdjustToleranceFact(QString("Agricultural"), _metaDataMap[terrainAdjustToleranceName], this),
-      _terrainAdjustMaxClimbRateFact(QString("Agricultural"), _metaDataMap[terrainAdjustMaxClimbRateName], this),
-      _terrainAdjustMaxDescentRateFact(QString("Agricultural"), _metaDataMap[terrainAdjustMaxDescentRateName], this)
+        _metaDataMap(FactMetaData::createMapFromJsonFile(QStringLiteral(":/json/Agriculture.test.json"), this)),
+        _lineSpacingFact(QString("Agricultural") /*componentId*/, _metaDataMap[lineSpacingName], this),
+        _gridAngleFact(QString("Agricultural"), _metaDataMap[gridAngleName], this),
+        _entryLocationFact(QString("Agricultural"), _metaDataMap[entryLocationName], this),
+        _fieldPaddingFact(QString("Agricultural"), _metaDataMap[fieldPaddingName], this),
+        _speedModeFact(QString("Agricultural"), _metaDataMap[speedModeName], this),
+        _fixedSpeedFact(QString("Agricultural"), _metaDataMap[fixedSpeedName], this),
+        _pesticideLitersPerDekarFact(QString("Agricultural"), _metaDataMap[pesticideLitersPerDekarName], this),
+        _pesticideDropletSizeFact(QString("Agricultural"), _metaDataMap[pesticideDropletSizeName], this),
+        _spraySpeedProfileFact(QString("Agricultural"), _metaDataMap[spraySpeedProfileName], this),
+        _turnAroundDistanceFact(QString("Agricultural"), _metaDataMap[turnAroundDistanceName], this),
+        _terrainAdjustToleranceFact(QString("Agricultural"), _metaDataMap[terrainAdjustToleranceName], this),
+        _terrainAdjustMaxClimbRateFact(QString("Agricultural"), _metaDataMap[terrainAdjustMaxClimbRateName], this),
+        _terrainAdjustMaxDescentRateFact(QString("Agricultural"), _metaDataMap[terrainAdjustMaxDescentRateName], this)
 {
     GeoFenceController* gfc = _masterController->geoFenceController();
     _geoFenceCircles = gfc ? gfc->circles() : nullptr;
     _geoFencePolygons = gfc ? gfc->polygons() : nullptr;
+
+    if (_masterController) {
+        connect(_masterController, &PlanMasterController::managerVehicleChanged,
+                this, &AgriculturalStyleComplexItem::_handleManagerVehicleChanged,
+                Qt::UniqueConnection);
+    }
 
     // Polygon change triggers recalc
     connect(&_surveyAreaPolygon, &QGCMapPolygon::pathChanged, this, &AgriculturalStyleComplexItem::_polyChanged);
@@ -519,6 +556,13 @@ AgriculturalStyleComplexItem::AgriculturalStyleComplexItem(PlanMasterController*
     connect(&_turnAroundDistanceFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
     connect(&_surveyAreaPolygon, &QGCMapPolygon::pathChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
     connect(&_surveyAreaPolygon, &QGCMapPolygon::pathChanged, this, &AgriculturalStyleComplexItem::_polyChanged);
+
+    connect(&_lineSpacingFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::recalcMissionItems);
+    connect(&_pesticideLitersPerDekarFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::recalcMissionItems);
+    connect(&_pesticideDropletSizeFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::recalcMissionItems);
+    connect(&_spraySpeedProfileFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::recalcMissionItems);
+    connect(&_pesticideLitersPerDekarFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::_handleSprayInputsEdited);
+    connect(&_pesticideDropletSizeFact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::_handleSprayInputsEdited);
 
     setDirty(false);
 }
@@ -846,11 +890,57 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
     _visualTransectPoints.clear();
     _visualFieldTransectPairs.clear();
 
+    auto resetFlightPathSegments = [&]() {
+        _flightPathSegments.beginResetModel();
+        _flightPathSegments.clear();
+        _flightPathSegments.endResetModel();
+    };
+
     if (!_surveyAreaPolygon.isValid() || _surveyAreaPolygon.count() < 3) {
         emit visualTransectPointsChanged();
+        resetFlightPathSegments();
         emit readyForSaveStateChanged();
         return;
     }
+
+    if (!_sprayInputsValid()) {
+        _setSprayParametersConfirmed(false);
+        _coordinate = QGeoCoordinate();
+        _exitCoordinate = QGeoCoordinate();
+        emit coordinateChanged(_coordinate);
+        emit exitCoordinateChanged(_exitCoordinate);
+        emit visualTransectPointsChanged();
+        resetFlightPathSegments();
+        if (!_isIncomplete) {
+            _isIncomplete = true;
+            emit isIncompleteChanged();
+        }
+        emit readyForSaveStateChanged();
+        return;
+    }
+
+    if (!_sprayParametersConfirmed) {
+        emit visualTransectPointsChanged();
+        resetFlightPathSegments();
+        if (!_isIncomplete) {
+            _isIncomplete = true;
+            emit isIncompleteChanged();
+        }
+        emit readyForSaveStateChanged();
+        return;
+    }
+
+    if (!_lastOptimizedSpacingValid) {
+        recalcMissionItems();
+    }
+
+    auto resolveSpacingMeters = [&]() -> double {
+        if (_lastOptimizedSpacingValid && qIsFinite(_lastOptimizedSpacing) && _lastOptimizedSpacing > 0.0) {
+            _lineSpacingFact.setRawValue(_lastOptimizedSpacing);
+            return _lastOptimizedSpacing;
+        }
+        return _lineSpacingFact.rawValue().toDouble();
+    };
 
     QGeoCoordinate plannedHome = _masterController->missionController()->takeoffCoordinate();
 
@@ -869,13 +959,13 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
 
         QPolygonF nedArea = nedRef.isValid() ? _surveyAreaToNed(nedRef) : QPolygonF();
         if (nedArea.size() >= 3) {
-            QPolygonF shrunk = nedSurveyArea_offsett(nedArea, padMeters);
+            QPolygonF shrunk = nedSurveyArea_offset(nedArea, padMeters);
             if (shrunk.size() >= 3) {
                 nedArea = shrunk;
             }
         }
 
-        const double spacingMeters = _lineSpacingFact.rawValue().toDouble();
+        const double spacingMeters = resolveSpacingMeters();
         const double angleDeg = _gridAngleFact.rawValue().toDouble();
 
         QList<QList<CoordInfo_t>> legs;
@@ -962,7 +1052,7 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
         _refForNed = midPoint;
 
         const double angleDeg = _gridAngleFact.rawValue().toDouble();
-        const double spacingMeters = _lineSpacingFact.rawValue().toDouble();
+        const double spacingMeters = resolveSpacingMeters();
         QLineF midLine = _generateMidLine(midPoint, angleDeg);
 
         const double rad = qDegreesToRadians(angleDeg);
@@ -975,7 +1065,7 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
         double pad = _fieldPaddingFact.rawValue().toDouble();
         // enforce minimum 1 meter padding as safety
         pad = qMax(1.0, pad);
-        nedSurveyArea = nedSurveyArea_offsett(nedSurveyArea, pad);
+        nedSurveyArea = nedSurveyArea_offset(nedSurveyArea, pad);
 
         QPainterPath surveyPainterPath;
         surveyPainterPath.addPolygon(nedSurveyArea);
@@ -1013,7 +1103,7 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
 
             QPolygonF nedPoly = fencePolygonToNed(fp, _refForNed);
             // Expand fence polygon by padding so exclusion zones include padding
-            QPolygonF expandedNedPoly = nedSurveyArea_offsett(nedPoly, -pad);
+            QPolygonF expandedNedPoly = nedSurveyArea_offset(nedPoly, -pad);
 
             std::vector<QPointF> verts;
             verts.reserve(nedPoly.size());
@@ -1131,6 +1221,79 @@ void AgriculturalStyleComplexItem::_polyChanged() {
     _rebuildTransects();
 }
 
+bool AgriculturalStyleComplexItem::_sprayInputsValid() const {
+    const double litersPerDekar = _pesticideLitersPerDekarFact.rawValue().toDouble();
+    const double dropletSize = _pesticideDropletSizeFact.rawValue().toDouble();
+    return litersPerDekar > 0.0 && dropletSize > 0.0;
+}
+
+void AgriculturalStyleComplexItem::_setSprayParametersConfirmed(bool confirmed) {
+    if (_sprayParametersConfirmed == confirmed) {
+        return;
+    }
+    _sprayParametersConfirmed = confirmed;
+    emit sprayParametersConfirmedChanged();
+    if (!_ignoreRecalc) {
+        setDirty(true);
+    }
+}
+
+void AgriculturalStyleComplexItem::_handleSprayInputsEdited() {
+    if (!_sprayInputsValid()) {
+        _setSprayParametersConfirmed(false);
+        _transects.clear();
+        _visualTransectPoints.clear();
+        _visualFieldTransectPairs.clear();
+        emit visualTransectPointsChanged();
+        if (!_isIncomplete) {
+            _isIncomplete = true;
+            emit isIncompleteChanged();
+        }
+        emit readyForSaveStateChanged();
+        return;
+    }
+
+    if (_lastOptimizedSpacingValid) {
+        _applyOptimizedSpacing(_lastOptimizedSpacing);
+    }
+
+    if (_sprayParametersConfirmed) {
+        _rebuildTransects();
+    }
+}
+
+void AgriculturalStyleComplexItem::_applyOptimizedSpacing(double spacingMeters) {
+    if (!qIsFinite(spacingMeters) || spacingMeters <= 0.0) {
+        return;
+    }
+
+    double spacing = spacingMeters;
+    const QVariant minVar = _lineSpacingFact.rawMin();
+    const QVariant maxVar = _lineSpacingFact.rawMax();
+    if (minVar.isValid()) {
+        spacing = qMax(spacing, minVar.toDouble());
+    }
+    if (maxVar.isValid()) {
+        spacing = qMin(spacing, maxVar.toDouble());
+    }
+
+    const double current = _lineSpacingFact.rawValue().toDouble();
+    if (qAbs(current - spacing) <= 1e-3) {
+        return;
+    }
+
+    _lineSpacingFact.setRawValue(spacing);
+}
+
+void AgriculturalStyleComplexItem::confirmSprayParameters() {
+    if (!_sprayInputsValid()) {
+        return;
+    }
+    _setSprayParametersConfirmed(true);
+    recalcMissionItems();
+    _rebuildTransects();
+}
+
 int AgriculturalStyleComplexItem::lastSequenceNumber(void) const {
     if (_loadedMissionItems.count()) {
         return _sequenceNumber + _loadedMissionItems.count() - 1;
@@ -1182,7 +1345,243 @@ void AgriculturalStyleComplexItem::_appendLoadedMissionItems(QList<MissionItem*>
 
 void AgriculturalStyleComplexItem::_applyPesticideCalculations()
 {
-    // Placeholder for future pesticide application calculations using user-provided inputs.
+    recalcMissionItems();
+}
+
+void AgriculturalStyleComplexItem::recalcMissionItems()
+{
+    if (_ignoreRecalc) {
+        return;
+    }
+
+    _bindVehicleParameterFactsIfNeeded();
+
+    _lastOptimizedSpacing = qQNaN();
+    _lastOptimizedSpacingValid = false;
+
+    auto approxEqual = [](double a, double b) {
+        if (qIsNaN(a) && qIsNaN(b)) {
+            return true;
+        }
+        if (qIsNaN(a) || qIsNaN(b)) {
+            return false;
+        }
+        const double diff = qAbs(a - b);
+        const double ref = qMax(1.0, qMax(qAbs(a), qAbs(b)));
+        return diff <= (1e-6 * ref);
+    };
+
+    auto commitState = [&](double speed, double flow, bool valid, const QString& status) {
+        const bool changed = !approxEqual(speed, _recommendedVehicleSpeed)
+                          || !approxEqual(flow, _recommendedFlowRate)
+                          || (valid != _spraySolutionValid)
+                          || (status != _spraySolutionStatus);
+        _recommendedVehicleSpeed = speed;
+        _recommendedFlowRate = flow;
+        _spraySolutionValid = valid;
+        _spraySolutionStatus = status;
+        if (changed) {
+            emit spraySolutionChanged();
+        }
+    };
+
+    const double spacingMeters = _lineSpacingFact.rawValue().toDouble();
+    if (spacingMeters <= 0.0) {
+        commitState(qQNaN(), qQNaN(), false, tr("Spacing must be greater than zero."));
+        return;
+    }
+
+    const double litersPerDekar = _pesticideLitersPerDekarFact.rawValue().toDouble();
+    if (litersPerDekar <= 0.0) {
+        commitState(qQNaN(), qQNaN(), false, tr("L/dekar must be greater than zero."));
+        return;
+    }
+
+    double minSpeed = qQNaN();
+    double maxSpeed = qQNaN();
+    double minFlow = qQNaN();
+    double maxFlow = qQNaN();
+
+    auto extract = [&](Fact* fact, const QString& paramName, double& outValue) -> bool {
+        if (!factValueToDouble(fact, outValue)) {
+            commitState(qQNaN(), qQNaN(), false,
+                        tr("Vehicle parameter %1 unavailable").arg(paramName));
+            return false;
+        }
+        return true;
+     };
+
+    if (!extract(_vehicleMinSpeedFact, kVehicleSpeedMinParamName, minSpeed) ||
+        !extract(_vehicleMaxSpeedFact, kVehicleSpeedMaxParamName, maxSpeed) ||
+        !extract(_vehicleMinFlowFact,  kVehicleFlowMinParamName,  minFlow) ||
+        !extract(_vehicleMaxFlowFact,  kVehicleFlowMaxParamName,  maxFlow)) {
+        return;
+    }
+
+    if (minSpeed <= 0.0 || maxSpeed <= 0.0 || minSpeed > maxSpeed) {
+        commitState(qQNaN(), qQNaN(), false, tr("Vehicle speed limits invalid."));
+        return;
+    }
+
+    if (minFlow <= 0.0 || maxFlow <= 0.0 || minFlow > maxFlow) {
+        commitState(qQNaN(), qQNaN(), false, tr("Vehicle flow limits invalid."));
+        return;
+    }
+
+    const double dropletMicron = _pesticideDropletSizeFact.rawValue().toDouble();
+    if (dropletMicron <= 0.0) {
+        commitState(qQNaN(), qQNaN(), false, tr("Droplet size must be greater than zero."));
+        return;
+    }
+
+    double sprayAltitudeMeters = 3.0;
+    if (_missionController && _missionController->takeoffMissionItem()) {
+        TakeoffMissionItem* takeoff = _missionController->takeoffMissionItem();
+        if (takeoff && takeoff->altitude()) {
+            const double takeoffAlt = takeoff->altitude()->rawValue().toDouble();
+            if (std::isfinite(takeoffAlt) && takeoffAlt > 0.0) {
+                sprayAltitudeMeters = takeoffAlt;
+            }
+        }
+    }
+    const double overlapFactor = 0.7; // TODO: expose as user-configurable parameter.
+
+    double spacingSearchMin = 0.5;
+    double spacingSearchMax = qMax(spacingSearchMin + 0.1, spacingMeters);
+    const QVariant spacingMinVar = _lineSpacingFact.rawMin();
+    const QVariant spacingMaxVar = _lineSpacingFact.rawMax();
+    if (spacingMinVar.isValid()) {
+        const double factMin = spacingMinVar.toDouble();
+        if (factMin > 0.0) {
+            spacingSearchMin = factMin;
+        }
+    }
+    if (spacingMaxVar.isValid()) {
+        const double factMax = spacingMaxVar.toDouble();
+        if (factMax > spacingSearchMin) {
+            spacingSearchMax = factMax;
+        }
+    }
+    spacingSearchMin = qMax(0.01, spacingSearchMin);
+    spacingSearchMax = qMax(spacingSearchMin + 0.1, spacingSearchMax);
+
+    SprayInputs inputs;
+    inputs.litersPerDekar = litersPerDekar;
+    inputs.dropletMicron = dropletMicron;
+    inputs.altitudeMeters = sprayAltitudeMeters;
+    inputs.overlapFactor = overlapFactor;
+    inputs.minSpeed = minSpeed;
+    inputs.maxSpeed = maxSpeed;
+    inputs.minFlow = minFlow;
+    inputs.maxFlow = maxFlow;
+    inputs.minSpacing = spacingSearchMin;
+    inputs.maxSpacing = spacingSearchMax;
+
+    SprayOptimizer optimizer;
+    const SpraySolution solution = optimizer.solve(inputs);
+    if (!solution.valid) {
+        const QString status = solution.errorMessage.isEmpty() ? tr("Spray optimizer failed.")
+                                                              : solution.errorMessage;
+        commitState(qQNaN(), qQNaN(), false, status);
+        return;
+    }
+
+    commitState(solution.vehicleSpeed, solution.flowRate, true, QString());
+
+    if (solution.valid && qIsFinite(solution.spacing) && solution.spacing > 0.0) {
+        _lastOptimizedSpacing = solution.spacing;
+        _lastOptimizedSpacingValid = true;
+    }
+}
+
+void AgriculturalStyleComplexItem::_bindVehicleParameterFactsIfNeeded()
+{
+    Vehicle* vehicle = nullptr;
+    if (_masterController) {
+        vehicle = _masterController->managerVehicle();
+    }
+    if (!vehicle) {
+        vehicle = _controllerVehicle;
+    }
+    if (!vehicle) {
+        return;
+    }
+
+    if (_vehicleFactSource != vehicle) {
+        _resetVehicleParameterFacts();
+        _vehicleFactSource = vehicle;
+    }
+
+    if (_vehicleParamFactsBound) {
+        return;
+    }
+
+    ParameterManager* pm = vehicle->parameterManager();
+    if (!pm) {
+        return;
+    }
+
+    if (!pm->parametersReady()) {
+        connect(pm, &ParameterManager::parametersReadyChanged,
+                this, &AgriculturalStyleComplexItem::_handleVehicleParametersReady,
+                Qt::UniqueConnection);
+        return;
+    }
+
+    auto bindFact = [&](const QString& paramName, Fact*& target) {
+        target = nullptr;
+        if (!pm->parameterExists(ParameterManager::defaultComponentId, paramName)) {
+            qCWarning(AgriculturalStyleComplexItemLog)
+                << "AgriculturalStyleComplexItem missing vehicle parameter" << paramName;
+            return;
+        }
+        target = pm->getParameter(ParameterManager::defaultComponentId, paramName);
+        connect(target, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::recalcMissionItems, Qt::UniqueConnection);
+    };
+
+    bindFact(kVehicleSpeedMinParamName, _vehicleMinSpeedFact);
+    bindFact(kVehicleSpeedMaxParamName, _vehicleMaxSpeedFact);
+    bindFact(kVehicleFlowMinParamName,  _vehicleMinFlowFact);
+    bindFact(kVehicleFlowMaxParamName,  _vehicleMaxFlowFact);
+
+    _vehicleParamFactsBound = true;
+}
+
+void AgriculturalStyleComplexItem::_handleVehicleParametersReady(bool ready)
+{
+    if (!ready) {
+        return;
+    }
+
+    _resetVehicleParameterFacts();
+
+    _bindVehicleParameterFactsIfNeeded();
+    recalcMissionItems();
+}
+
+void AgriculturalStyleComplexItem::_handleManagerVehicleChanged(Vehicle* vehicle)
+{
+    Q_UNUSED(vehicle);
+    _vehicleFactSource = nullptr;
+    _resetVehicleParameterFacts();
+    _bindVehicleParameterFactsIfNeeded();
+    recalcMissionItems();
+}
+
+void AgriculturalStyleComplexItem::_resetVehicleParameterFacts()
+{
+    auto disconnectFact = [&](Fact*& fact) {
+        if (fact) {
+            disconnect(fact, &Fact::valueChanged, this, &AgriculturalStyleComplexItem::recalcMissionItems);
+            fact = nullptr;
+        }
+    };
+
+    disconnectFact(_vehicleMinSpeedFact);
+    disconnectFact(_vehicleMaxSpeedFact);
+    disconnectFact(_vehicleMinFlowFact);
+    disconnectFact(_vehicleMaxFlowFact);
+    _vehicleParamFactsBound = false;
 }
 
 void AgriculturalStyleComplexItem::_buildAndAppendMissionItems(QList<MissionItem*>& items, QObject* missionItemParent) {
@@ -1291,7 +1690,9 @@ void AgriculturalStyleComplexItem::save(QJsonArray& planItems) {
     inner[fixedSpeedName] = _fixedSpeedFact.rawValue().toDouble();
     inner[pesticideLitersPerDekarName] = _pesticideLitersPerDekarFact.rawValue().toDouble();
     inner[pesticideDropletSizeName] = _pesticideDropletSizeFact.rawValue().toDouble();
+    inner[spraySpeedProfileName] = _spraySpeedProfileFact.rawValue().toInt();
     inner[turnAroundDistanceName] = _turnAroundDistanceFact.rawValue().toDouble();
+    inner[_jsonSprayInputsConfirmedKey] = _sprayParametersConfirmed;
     // Terrain placeholders saved only when we later enable terrain mode
 
     // Save visuals (polyline of leg endpoints)
@@ -1349,8 +1750,14 @@ bool AgriculturalStyleComplexItem::load(const QJsonObject& complexObject, int se
         inner.value(pesticideLitersPerDekarName).toDouble(_pesticideLitersPerDekarFact.rawValue().toDouble()));
     _pesticideDropletSizeFact.setRawValue(
         inner.value(pesticideDropletSizeName).toDouble(_pesticideDropletSizeFact.rawValue().toDouble()));
+    _spraySpeedProfileFact.setRawValue(
+        inner.value(spraySpeedProfileName).toInt(_spraySpeedProfileFact.rawValue().toInt()));
     _turnAroundDistanceFact.setRawValue(
         inner.value(turnAroundDistanceName).toDouble(_turnAroundDistanceFact.rawValue().toDouble()));
+    const bool sprayConfirmed = inner.contains(_jsonSprayInputsConfirmedKey)
+        ? inner.value(_jsonSprayInputsConfirmedKey).toBool()
+        : true;
+    _setSprayParametersConfirmed(sprayConfirmed);
 
     // Load visuals
     if (inner.contains(_jsonVisualTransectPointsKey)) {
@@ -1379,6 +1786,8 @@ bool AgriculturalStyleComplexItem::load(const QJsonObject& complexObject, int se
     }
 
     _ignoreRecalc = false;
+    _bindVehicleParameterFactsIfNeeded();
+    recalcMissionItems();
     setDirty(false);
     return true;
 }

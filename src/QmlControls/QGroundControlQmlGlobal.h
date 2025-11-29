@@ -267,7 +267,7 @@ private:
     UTMSPManager*           _utmspManager           = nullptr;
 #endif
 
-    double                  _flightMapInitialZoom   = 17.0;
+    double                  _flightMapInitialZoom   = 19.0;
     QmlUnitsConversion      _unitsConversion;
 
     QStringList             _altitudeModeEnumString;

@@ -78,22 +78,6 @@ Item {
         interiorOpacity:    0.5 * _root.opacity
         
     }
-    // Repeater {
-    //     id: fieldPolysRepeater
-    //     model: _fieldPolygons            // QList<QGCMapPolygon*> from object.fieldPolygonsMap
-
-    //     delegate: QGCMapPolygonVisuals {
-    //         mapControl:      map
-    //         mapPolygon:      modelData   // each QGCMapPolygon*
-    //         interactive:     false
-    //         borderWidth:     1
-    //         borderColor:     "red"
-    //         interiorColor:   "yellow"
-    //         altColor:        QGroundControl.globalPalette.surveyPolygonTerrainCollision
-    //         interiorOpacity: 0.5 * _root.opacity
-    //         visible:         _currentItem
-    //     }
-    // }
 
     // Full set of transects lines. Shown when item is selected.
     Component {

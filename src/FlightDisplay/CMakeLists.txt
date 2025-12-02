@@ -64,6 +64,7 @@ qt_add_qml_module(FlightDisplayModule
         QGCVideoBackground.qml
         RoverChecklist.qml
         SubChecklist.qml
+        SprayingProfile.qml
         TelemetryValuesBar.qml
         TerrainProgress.qml
         VehicleWarnings.qml

@@ -647,6 +647,9 @@ void Vehicle::_mavlinkMessageReceived(LinkInterface* link, mavlink_message_t mes
     case MAVLINK_MSG_ID_COMMAND_LONG:
         _handleCommandLong(message);
         break;
+    case MAVLINK_MSG_ID_NAMED_VALUE_FLOAT:
+        _handleNamedValueFloat(message);
+        break;
     }
 
     // This must be emitted after the vehicle processes the message. This way the vehicle state is up to date when anyone else
@@ -4432,3 +4435,55 @@ const QVariantList &Vehicle::staticCameraList() const
 }
 
 /*---------------------------------------------------------------------------*/
+
+void Vehicle::resetSprayingCumulativeFlow()
+{
+    // MAV_CMD_DO_SEND_SCRIPT_MESSAGE = 5100
+    // param1 = 25 (custom ID)
+    // param2 = 1 (reset command)
+    const MAV_CMD cmd = MAV_CMD_DO_SEND_SCRIPT_MESSAGE;
+    sendMavCommand(
+        _defaultComponentId,
+        cmd,
+        false,
+        25.0f,
+        1.0f
+    );
+}
+
+void Vehicle::updateSprayingData(double flow, double total)
+{
+    if (!QGC::fuzzyCompare(_sprayingFlowRate, flow)) {
+        _sprayingFlowRate = flow;
+        emit sprayingFlowRateChanged(flow);
+    }
+    if (!QGC::fuzzyCompare(_sprayingCumulativeFlow, total)) {
+        _sprayingCumulativeFlow = total;
+        emit sprayingCumulativeFlowChanged(total);
+    }
+}
+
+void Vehicle::_handleNamedValueFloat(const mavlink_message_t& message)
+{
+    mavlink_named_value_float_t namedValue;
+    mavlink_msg_named_value_float_decode(&message, &namedValue);
+
+    QString name = QString(namedValue.name);
+    // Ensure null termination if not present in 10 char array
+    if (name.length() > 10) name = name.left(10);
+    // Remove any garbage after null terminator if QString didn't catch it (it usually does from char*)
+    
+    // Dummy names as placeholders
+    if (name == "SprayRate") {
+        if (!QGC::fuzzyCompare(_sprayingFlowRate, (double)namedValue.value)) {
+            _sprayingFlowRate = (double)namedValue.value;
+            emit sprayingFlowRateChanged(_sprayingFlowRate);
+        }
+    } else if (name == "SprayTotal") {
+        if (!QGC::fuzzyCompare(_sprayingCumulativeFlow, (double)namedValue.value)) {
+            _sprayingCumulativeFlow = (double)namedValue.value;
+            emit sprayingCumulativeFlowChanged(_sprayingCumulativeFlow);
+        }
+    }
+}
+

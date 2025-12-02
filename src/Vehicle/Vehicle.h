@@ -224,6 +224,9 @@ public:
     Q_PROPERTY(double               loadProgress                READ loadProgress                                                   NOTIFY loadProgressChanged)
     Q_PROPERTY(bool                 initialConnectComplete      READ isInitialConnectComplete                                       NOTIFY initialConnectComplete)
 
+    Q_PROPERTY(double               sprayingFlowRate            READ sprayingFlowRate                                               NOTIFY sprayingFlowRateChanged)
+    Q_PROPERTY(double               sprayingCumulativeFlow      READ sprayingCumulativeFlow                                         NOTIFY sprayingCumulativeFlowChanged)
+
     // The following properties relate to Orbit status
     Q_PROPERTY(bool             orbitActive     READ orbitActive        NOTIFY orbitActiveChanged)
     Q_PROPERTY(QGCMapCircle*    orbitMapCircle  READ orbitMapCircle     CONSTANT)
@@ -415,6 +418,9 @@ public:
     Q_INVOKABLE void saveJoystickSettings(void);
 
     Q_INVOKABLE void sendSetupSigning();
+
+    Q_INVOKABLE void resetSprayingCumulativeFlow();
+    Q_INVOKABLE void updateSprayingData(double flow, double total);
 
     Q_INVOKABLE QVariant expandedToolbarIndicatorSource(const QString& indicatorName);
 
@@ -798,6 +804,20 @@ public:
     quint64     mavlinkLossCount        () const{ return _mavlinkLossCount; }        /// Total number of lost messages
     float       mavlinkLossPercent      () const{ return _mavlinkLossPercent; }      /// Running loss rate
 
+    double      sprayingFlowRate        () const { return _sprayingFlowRate; }
+    double      sprayingCumulativeFlow  () const { return _sprayingCumulativeFlow; }
+
+signals:
+    void    sprayingFlowRateChanged         (double flowRate);
+    void    sprayingCumulativeFlowChanged   (double cumulativeFlow);
+
+private:
+    void _handleNamedValueFloat(const mavlink_message_t& message);
+
+    double _sprayingFlowRate = 0.0;
+    double _sprayingCumulativeFlow = 0.0;
+
+public:
     bool        isROIEnabled            () const{ return _isROIEnabled; }
 
     CheckList   checkListState          () { return _checkListState; }

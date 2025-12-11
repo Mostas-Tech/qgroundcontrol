@@ -26,7 +26,7 @@
     {
       "name": "Android Qt6 Debug",
       "intelliSenseMode": "clang-arm64",
-      "compileCommands": "${workspaceFolder}/build/Android_Qt_6.10.0_Clang_arm64_v8a-Debug/compile_commands.json",
+      "compileCommands": "${workspaceFolder}/build/android-arm64-dbg/compile_commands.json",
       "includePath": [
         "${workspaceFolder}/src",
         "${workspaceFolder}/custom",

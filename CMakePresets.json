@@ -7,7 +7,7 @@
       "name": "android-ihattys-debug",
       "displayName": "Android arm64 + Qt 6.10.0 (Debug)",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/Android_Qt_6.10.0_Clang_arm64_v8a-Debug",
+      "binaryDir": "${sourceDir}/build/android-arm64-dbg",
       "cacheVariables": {
         
         "CMAKE_BUILD_TYPE": "Debug",
@@ -32,8 +32,8 @@
         "DQGC_QT_MINIMUM_VERSION": "6.10.0",
         "DQGC_QT_MAXIMUM_VERSION": "6.10.0",
         "DQGC_DEBUG_QML": "ON",
-        "DQT_QML_OUTPUT_DIRECTORY": "${sourceDir}/build/Android_Qt_6.10.0_Clang_arm64_v8a-Debug/qml",
-        "DQML_IMPORT_PATH": "${sourceDir}/build/Android_Qt_6.10.0_Clang_arm64_v8a-Debug/qml;${sourceDir}/custom/res",
+        "DQT_QML_OUTPUT_DIRECTORY": "${sourceDir}/build/android-arm64-dbg/qml",
+        "DQML_IMPORT_PATH": "${sourceDir}/build/android-arm64-dbg/qml;${sourceDir}/custom/res",
 
         "DQGC_ENABLE_BLUETOOTH": "ON",
         "DQGC_ENABLE_GST_VIDEOSTREAMING": "ON",
@@ -66,12 +66,12 @@
       "name": "android-ihattys-release",
       "displayName": "Android arm64 + Qt 6.10.0 (Release)",
       "inherits": "android-ihattys-debug",
-      "binaryDir": "${sourceDir}/build/Android_Qt_6.10.0_Clang_arm64_v8a-Release",
+      "binaryDir": "${sourceDir}/build/android-arm64-rel",
       "cacheVariables": {
         "CMAKE_BUILD_TYPE": "Release",
         "DQGC_DEBUG_QML": "OFF",
-        "DQT_QML_OUTPUT_DIRECTORY": "${sourceDir}/build/Android_Qt_6.10.0_Clang_arm64_v8a-Release/qml",
-        "DQML_IMPORT_PATH": "${sourceDir}/build/Android_Qt_6.10.0_Clang_arm64_v8a-Release/qml;${sourceDir}/custom/res"
+        "DQT_QML_OUTPUT_DIRECTORY": "${sourceDir}/build/android-arm64-rel/qml",
+        "DQML_IMPORT_PATH": "${sourceDir}/build/android-arm64-rel/qml;${sourceDir}/custom/res"
       }
     }
     ,

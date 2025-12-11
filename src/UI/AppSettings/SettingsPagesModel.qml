@@ -89,6 +89,13 @@ ListModel {
     }
 
     ListElement {
+        name: qsTr("AgriBoard Debug")
+        url: "qrc:/qml/QGroundControl/AppSettings/AgriBoardDebugSettings.qml"
+        iconUrl: "qrc:/InstrumentValueIcons/bug.svg"
+        pageVisible: function() { return QGroundControl.settingsManager.agriBoardDebugSettings.enabled.rawValue }
+    }
+
+    ListElement {
         name: qsTr("Logging")
         url: "qrc:/qml/QGroundControl/Controls/AppLogging.qml"
         iconUrl: "qrc:/InstrumentValueIcons/conversation.svg"

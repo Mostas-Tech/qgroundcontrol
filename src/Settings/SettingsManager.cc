@@ -10,6 +10,7 @@
 #include "SettingsManager.h"
 #include "QGCLoggingCategory.h"
 #include "ADSBVehicleManagerSettings.h"
+#include "AgriBoardDebugSettings.h"
 #ifndef QGC_NO_ARDUPILOT_DIALECT
 #include "APMMavlinkStreamRateSettings.h"
 #endif
@@ -71,6 +72,7 @@ void SettingsManager::init()
     _autoConnectSettings = new AutoConnectSettings(this);
     _batteryIndicatorSettings = new BatteryIndicatorSettings(this);
     _brandImageSettings = new BrandImageSettings(this);
+    _agriBoardDebugSettings = new AgriBoardDebugSettings(this);
     _mavlinkActionsSettings = new MavlinkActionsSettings(this);
     _firmwareUpgradeSettings = new FirmwareUpgradeSettings(this);
     _flightMapSettings = new FlightMapSettings(this);
@@ -101,6 +103,7 @@ AppSettings *SettingsManager::appSettings() const { return _appSettings; }
 AutoConnectSettings *SettingsManager::autoConnectSettings() const { return _autoConnectSettings; }
 BatteryIndicatorSettings *SettingsManager::batteryIndicatorSettings() const { return _batteryIndicatorSettings; }
 BrandImageSettings *SettingsManager::brandImageSettings() const { return _brandImageSettings; }
+AgriBoardDebugSettings *SettingsManager::agriBoardDebugSettings() const { return _agriBoardDebugSettings; }
 MavlinkActionsSettings *SettingsManager::mavlinkActionsSettings() const { return _mavlinkActionsSettings; }
 FirmwareUpgradeSettings *SettingsManager::firmwareUpgradeSettings() const { return _firmwareUpgradeSettings; }
 FlightMapSettings *SettingsManager::flightMapSettings() const { return _flightMapSettings; }

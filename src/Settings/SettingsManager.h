@@ -16,6 +16,7 @@
 #include <QtCore/QMap>
 
 class ADSBVehicleManagerSettings;
+class AgriBoardDebugSettings;
 class APMMavlinkStreamRateSettings;
 class AppSettings;
 class AutoConnectSettings;
@@ -79,6 +80,7 @@ class SettingsManager : public QObject
     Q_PROPERTY(QObject *autoConnectSettings             READ autoConnectSettings            CONSTANT)
     Q_PROPERTY(QObject *batteryIndicatorSettings        READ batteryIndicatorSettings       CONSTANT)
     Q_PROPERTY(QObject *brandImageSettings              READ brandImageSettings             CONSTANT)
+    Q_PROPERTY(QObject *agriBoardDebugSettings          READ agriBoardDebugSettings         CONSTANT)
     Q_PROPERTY(QObject *mavlinkActionsSettings    READ mavlinkActionsSettings   CONSTANT)
     Q_PROPERTY(QObject *firmwareUpgradeSettings         READ firmwareUpgradeSettings        CONSTANT)
     Q_PROPERTY(QObject *flightMapSettings               READ flightMapSettings              CONSTANT)
@@ -119,6 +121,7 @@ public:
     AutoConnectSettings *autoConnectSettings() const;
     BatteryIndicatorSettings *batteryIndicatorSettings() const;
     BrandImageSettings *brandImageSettings() const;
+    AgriBoardDebugSettings *agriBoardDebugSettings() const;
     MavlinkActionsSettings *mavlinkActionsSettings() const;
     FirmwareUpgradeSettings *firmwareUpgradeSettings() const;
     FlightMapSettings *flightMapSettings() const;
@@ -165,6 +168,7 @@ private:
 #ifdef QGC_VIEWER3D
     Viewer3DSettings *_viewer3DSettings = nullptr;
 #endif
+    AgriBoardDebugSettings *_agriBoardDebugSettings = nullptr;
 
     QMap<QString, QMap<QString, QJsonObject>> _settingsFileOverrides;   // groupName:settingName:metaDataObject
 

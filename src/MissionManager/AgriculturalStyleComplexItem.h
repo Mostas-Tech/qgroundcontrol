@@ -169,6 +169,12 @@ public:
         SpraySpeedProfileFast   = 1,
     };
 
+    // Script-time actions used by derived spray/spreader classes
+    enum ScriptTimeAction {
+        ScriptTimeActionStart = 20,  ///< 20/21 to avoid collision with calibration/test (10/11/12)
+        ScriptTimeActionStop  = 21,
+    };
+
 signals:
     void visualTransectPointsChanged();
     void visualFieldTransectPairsChanged();
@@ -213,6 +219,9 @@ protected:
     QList<QLineF> _generateParallelLines(const QPolygonF& area, double spacingMeters, double angleDeg) const; // centerlines before clipping
     QList<QList<CoordInfo_t>> _clipLinesToPolygon(const QList<QLineF>& lines, const QPolygonF& area) const;
     QList<QList<CoordInfo_t>> _orderLegsEntryFirst(const QList<QList<CoordInfo_t>>& legs) const; // honors entryLocation; no zigzag
+    virtual MissionItem* _createScriptTimeItem(int sequenceNumber, int action, MAV_FRAME frame,
+                                               QObject* missionItemParent) const;
+    virtual int _scriptTimeItemCountPerLeg() const { return 0; }
 
 protected slots:
     void _polyChanged();

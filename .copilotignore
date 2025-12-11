@@ -1,0 +1,7 @@
+
+**/moc_*.cpp
+**/ui_*.h
+**/qrc_*.cpp
+**/*_automoc.cpp
+**/*.pb.cc
+**/*.pb.h

@@ -32,4 +32,9 @@ class SprayComplexItem : public AgriculturalStyleComplexItem
             // ---------- Save/Load ----------
     void save(QJsonArray& planItems) final;
     bool load(const QJsonObject& complexObject, int sequenceNumber, QString& errorString) final;
+
+protected:
+    MissionItem* _createScriptTimeItem(int sequenceNumber, int action, MAV_FRAME frame,
+                                       QObject* missionItemParent) const override;
+    int _scriptTimeItemCountPerLeg() const override { return 2; }
 };

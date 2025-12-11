@@ -13,6 +13,13 @@ QGC_LOGGING_CATEGORY(SprayComplexItemLog, "qgc.missionmanager.spray")
 
 const QString SprayComplexItem::name(QStringLiteral("Spray"));
 
+namespace {
+constexpr float kScriptMsgPumpPct     = 75.0f;  // hard-coded first pass (ignores UI for now)
+constexpr float kScriptMsgNozzlePct   = 75.0f;  // hard-coded first pass (ignores UI for now)
+constexpr float kScriptMsgFlowLpm     = 0.0f;   // reserved for future
+constexpr float kScriptMsgFlags       = 0.0f;   // reserved for future bitmask
+} // namespace
+
 SprayComplexItem::SprayComplexItem(PlanMasterController* masterController, bool flyView)
     : AgriculturalStyleComplexItem(masterController, flyView)
 {
@@ -22,9 +29,32 @@ SprayComplexItem::SprayComplexItem(PlanMasterController* masterController, bool 
 
 void SprayComplexItem::appendMissionItems(QList<MissionItem*>& items, QObject* missionItemParent)
 {
-    // For now: identical to base (waypoints + optional DO_CHANGE_SPEED if Fixed).
-    // TODO(SPRAY): Insert MAV_CMD_SCRIPT_TIME at leg start/stop when param map is finalized.
+    // Base builder handles waypoints + optional DO_CHANGE_SPEED and now injects NAV_SCRIPT_TIME start/stop.
     _buildAndAppendMissionItems(items, missionItemParent);
+}
+
+MissionItem* SprayComplexItem::_createScriptTimeItem(int sequenceNumber, int action, MAV_FRAME frame,
+                                                     QObject* missionItemParent) const
+{
+    Q_UNUSED(frame);
+
+    if (action != ScriptTimeActionStart && action != ScriptTimeActionStop) {
+        return nullptr;
+    }
+
+    return new MissionItem(sequenceNumber,
+                           MAV_CMD_DO_SEND_SCRIPT_MESSAGE,
+                           MAV_FRAME_MISSION,
+                           action,                     // param1: script action (20=start, 21=stop)
+                           kScriptMsgPumpPct,          // param2: pump percent
+                           kScriptMsgNozzlePct,        // param3: nozzle percent
+                           kScriptMsgFlowLpm,          // param4: reserved (flow L/min)
+                           0.0,                        // param5: EMPTY
+                           0.0,                        // param6: EMPTY
+                           0.0,                        // param7: EMPTY
+                           true,                       // autoContinue
+                           false,                      // isCurrentItem
+                           missionItemParent);
 }
 
 void SprayComplexItem::save(QJsonArray& planItems)

@@ -62,7 +62,8 @@ QPointF geoToNedXY(const QGeoCoordinate& geo, const QGeoCoordinate& ref) {
 
 QGeoCoordinate nedXYToGeo(const QPointF& nedXY, const QGeoCoordinate& ref) {
     QGeoCoordinate out;
-    QGCGeo::convertNedToGeo(nedXY.y(), nedXY.x(), 50, ref, out); // <-- out by ref
+    // Use zero "down" so we don't inject a bogus -50 m altitude into generated coordinates.
+    QGCGeo::convertNedToGeo(nedXY.y(), nedXY.x(), 0 /*down*/, ref, out);
     return out;
 }
 
@@ -604,37 +605,31 @@ void AgriculturalStyleComplexItem::setDirty(bool dirty) {
 
 // Build a simple WP at coordinate with altitude from vehicle default (no terrain mode yet)
 void AgriculturalStyleComplexItem::_appendWaypoint(QList<MissionItem*>& items, QObject* missionItemParent, int& seqNum, MAV_FRAME mavFrame, float holdTime, const QGeoCoordinate& coordinate) {
-    // Interpret coordinate.altitude() as a height above takeoff (relative). If the coordinate
-    // altitude is set by the user, add the planned home altitude (takeoff) to get AMSL. If no
-    // coordinate altitude is provided, use the planned home altitude as the waypoint altitude.
-    double altitude;
-    // Prefer altitude from TakeoffMissionItem when available. Fall back to planned home position altitude.
-    double takeoffAmsl = std::numeric_limits<double>::quiet_NaN();
+    // Interpret coordinate.altitude() as a height above takeoff (relative). If unset, fall back
+    // to the Takeoff mission item's altitude (relative). If that is missing, use 5 m.
+    double altitude = std::numeric_limits<double>::quiet_NaN();
+    double takeoffRel = std::numeric_limits<double>::quiet_NaN();
     if (_missionController && _missionController->takeoffMissionItem()) {
         TakeoffMissionItem* toi = _missionController->takeoffMissionItem();
-        // If the takeoff item uses a non-relative mode, use its AMSL value. If it is relative,
-        // use the raw altitude value directly (user requested not to use home altitude).
-        if (toi->altitudeMode() == QGroundControlQmlGlobal::AltitudeModeRelative) {
-            takeoffAmsl = toi->altitude()->rawValue().toDouble();
-        } else {
-            takeoffAmsl = toi->amslEntryAlt();
+        if (toi && toi->altitude()) {
+            takeoffRel = toi->altitude()->rawValue().toDouble();
         }
     }
 
-    // Do NOT fall back to planned home position altitude. If we don't have a TakeoffMissionItem
-    // available to provide the takeoff AMSL, fall back to a safe default of 5.0 m.
+    // prefer user-provided relative altitude; otherwise use takeoff relative altitude; else 5 m
     if (std::isfinite(coordinate.altitude())) {
-        // Only interpret coordinate.altitude() as height-above-takeoff when we have a takeoff AMSL.
-        if (std::isfinite(takeoffAmsl)) {
-            altitude = takeoffAmsl + coordinate.altitude();
-        } else {
-            // No takeoff AMSL available: fall back to default altitude
-            altitude = 5.0;
+        if (std::isfinite(takeoffRel)) {
+        altitude = takeoffRel+ coordinate.altitude();
+        }else {
+        altitude = coordinate.altitude();
         }
     } else {
-        // No user altitude: use takeoff AMSL if available, otherwise a safe default.
-        altitude = std::isfinite(takeoffAmsl) ? takeoffAmsl : 5.0;
+        altitude = 5.0;
     }
+    if (!std::isfinite(altitude) || altitude < 0.0) {
+        altitude = 5.0;
+    }
+
     MissionItem* item = new MissionItem(seqNum++,
                                         MAV_CMD_NAV_WAYPOINT,
                                         mavFrame,
@@ -1299,9 +1294,13 @@ int AgriculturalStyleComplexItem::lastSequenceNumber(void) const {
         return _sequenceNumber + _loadedMissionItems.count() - 1;
     }
 
-    int itemCount = 0;
+    int itemCount = (_speedModeFact.rawValue().toInt() == SpeedModeFixed) ? 1 : 0; // DO_CHANGE_SPEED at start
     for (const QList<CoordInfo_t>& seg : _transects) {
-        itemCount += seg.count();
+        if (seg.size() < 2) {
+            continue;
+        }
+        itemCount += 2; // entry + exit waypoints per leg
+        itemCount += _scriptTimeItemCountPerLeg();
     }
     return _sequenceNumber + qMax(0, itemCount - 1);
 }
@@ -1584,6 +1583,16 @@ void AgriculturalStyleComplexItem::_resetVehicleParameterFacts()
     _vehicleParamFactsBound = false;
 }
 
+MissionItem* AgriculturalStyleComplexItem::_createScriptTimeItem(int sequenceNumber, int action, MAV_FRAME frame,
+                                                                 QObject* missionItemParent) const
+{
+    Q_UNUSED(sequenceNumber);
+    Q_UNUSED(action);
+    Q_UNUSED(frame);
+    Q_UNUSED(missionItemParent);
+    return nullptr; // base class has no script-time injection; derived classes may override
+}
+
 void AgriculturalStyleComplexItem::_buildAndAppendMissionItems(QList<MissionItem*>& items, QObject* missionItemParent) {
     int seqNum = _sequenceNumber;
 
@@ -1609,13 +1618,20 @@ void AgriculturalStyleComplexItem::_buildAndAppendMissionItems(QList<MissionItem
 
         // Entry WP
         _appendWaypoint(items, missionItemParent, seqNum, frame, 0 /*hold*/, leg.first().coord);
-
-        // TODO(SPRAY): insert MAV_CMD_SCRIPT_TIME to START spraying here (param mapping TBD)
+        // NAV_SCRIPT_TIME start (if provided by derived class)
+        if (MissionItem* startScript = _createScriptTimeItem(seqNum, ScriptTimeActionStart, MAV_FRAME_MISSION, missionItemParent)) {
+            startScript->setSequenceNumber(seqNum++);
+            items.append(startScript);
+        }
 
         // Exit WP
         _appendWaypoint(items, missionItemParent, seqNum, frame, 0 /*hold*/, leg.last().coord);
 
-        // TODO(SPRAY): insert MAV_CMD_SCRIPT_TIME to STOP spraying here (param mapping TBD)
+        // NAV_SCRIPT_TIME stop (if provided by derived class)
+        if (MissionItem* stopScript = _createScriptTimeItem(seqNum, ScriptTimeActionStop, MAV_FRAME_MISSION, missionItemParent)) {
+            stopScript->setSequenceNumber(seqNum++);
+            items.append(stopScript);
+        }
     }
 }
 

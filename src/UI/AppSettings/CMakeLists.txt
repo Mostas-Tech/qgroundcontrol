@@ -5,6 +5,7 @@ qt_add_qml_module(AppSettingsModule
     VERSION 1.0
     RESOURCE_PREFIX /qml
     QML_FILES
+        AgriBoardDebugSettings.qml
         ADSBServerSettings.qml
         BluetoothSettings.qml
         DebugWindow.qml

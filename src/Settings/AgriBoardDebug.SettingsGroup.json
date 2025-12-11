@@ -1,0 +1,50 @@
+{
+    "version":      1,
+    "fileType":  "FactMetaData",
+    "QGC.MetaData.Facts":
+[
+{
+    "name":             "enabled",
+    "shortDesc": "Enable AgriBoard debug panel",
+    "longDesc":  "Shows the AgriBoard debug controls that send MAV_CMDs to the Lua bridge.",
+    "type":             "bool",
+    "default":     true
+},
+{
+    "name":             "sprayCommandId",
+    "shortDesc": "Spray action id",
+    "longDesc":  "SCRIPT_MESSAGE param1 value used for spray start/stop (sent via MAV_CMD_DO_SEND_SCRIPT_MESSAGE).",
+    "type":             "uint32",
+    "default":     40,
+    "min":         1,
+    "max":         255
+},
+{
+    "name":             "scriptStartAction",
+    "shortDesc": "Script start action",
+    "longDesc":  "SCRIPT_MESSAGE param1 value used to start the fixed-PWM mission bridge (default 20).",
+    "type":             "int32",
+    "default":     20,
+    "min":         0,
+    "max":         100
+},
+{
+    "name":             "scriptStopAction",
+    "shortDesc": "Script stop action",
+    "longDesc":  "SCRIPT_MESSAGE param1 value used to stop the fixed-PWM mission bridge (default 21).",
+    "type":             "int32",
+    "default":     21,
+    "min":         0,
+    "max":         100
+},
+{
+    "name":             "logLineLimit",
+    "shortDesc": "Log buffer lines",
+    "longDesc":  "Maximum number of log lines to keep in the AgriBoard debug console.",
+    "type":             "int32",
+    "default":     200,
+    "min":         50,
+    "max":         2000
+}
+]
+}

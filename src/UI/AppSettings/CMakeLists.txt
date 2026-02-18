@@ -12,9 +12,11 @@ qt_add_qml_module(AppSettingsModule
         FlyViewSettings.qml
         GeneralSettings.qml
         HelpSettings.qml
+        IhattysSettings.qml
         LinkSettings.qml
         LogReplaySettings.qml
         MapSettings.qml
+        NTRIPSettings.qml
         MockLink.qml
         MockLinkSettings.qml
         PlanViewSettings.qml

@@ -94,8 +94,116 @@ if(android_openssl_ADDED)
     include(${android_openssl_SOURCE_DIR}/android_openssl.cmake)
     add_android_openssl_libraries(${CMAKE_PROJECT_NAME})
     message(STATUS "QGC: Android OpenSSL libraries added")
+    # Ensure androiddeployqt copies the OpenSSL runtime shared libs into the APK.
+    #
+    # Note: KDAB's script only populates `_OPENSSL_EXTRA_LIBS_PATHS` if it had to
+    # create the OpenSSL imported targets. If another toolchain (e.g. vcpkg)
+    # already provides OpenSSL::SSL/Crypto, `_OPENSSL_EXTRA_LIBS_PATHS` may be
+    # unset even though the runtime .so files are still required by Qt's
+    # qopensslbackend plugin (loaded via dlopen at runtime).
+    set(_qgc_android_openssl_libs)
+    if(DEFINED _OPENSSL_EXTRA_LIBS_PATHS)
+        list(APPEND _qgc_android_openssl_libs ${_OPENSSL_EXTRA_LIBS_PATHS})
+    endif()
+
+    if(NOT _qgc_android_openssl_libs)
+        if(CMAKE_BUILD_TYPE STREQUAL "Debug")
+            set(_qgc_android_openssl_root "${android_openssl_SOURCE_DIR}/no-asm")
+        else()
+            set(_qgc_android_openssl_root "${android_openssl_SOURCE_DIR}")
+        endif()
+
+        if(Qt6_VERSION VERSION_GREATER_EQUAL 6.5.0)
+            set(_qgc_android_openssl_dir "ssl_3")
+            set(_qgc_android_libcrypto "libcrypto_3.so")
+            set(_qgc_android_libssl "libssl_3.so")
+        else()
+            set(_qgc_android_openssl_dir "ssl_1.1")
+            set(_qgc_android_libcrypto "libcrypto_1_1.so")
+            set(_qgc_android_libssl "libssl_1_1.so")
+        endif()
+
+        set(_qgc_android_openssl_libdir
+            "${_qgc_android_openssl_root}/${_qgc_android_openssl_dir}/${CMAKE_ANDROID_ARCH_ABI}"
+        )
+
+        list(APPEND _qgc_android_openssl_libs
+            "${_qgc_android_openssl_libdir}/${_qgc_android_libcrypto}"
+            "${_qgc_android_openssl_libdir}/${_qgc_android_libssl}"
+        )
+
+        # Some loaders look for unversioned libssl.so/libcrypto.so. The KDAB
+        # package provides them as symlinks, which don't copy well on Windows,
+        # so create real copies in the build dir.
+        set(_qgc_android_openssl_copy_dir
+            "${CMAKE_BINARY_DIR}/android-openssl/${CMAKE_ANDROID_ARCH_ABI}"
+        )
+        file(MAKE_DIRECTORY "${_qgc_android_openssl_copy_dir}")
+        if(EXISTS "${_qgc_android_openssl_libdir}/${_qgc_android_libssl}")
+            configure_file(
+                "${_qgc_android_openssl_libdir}/${_qgc_android_libssl}"
+                "${_qgc_android_openssl_copy_dir}/libssl.so"
+                COPYONLY
+            )
+            list(APPEND _qgc_android_openssl_libs
+                "${_qgc_android_openssl_copy_dir}/libssl.so"
+            )
+        endif()
+        if(EXISTS "${_qgc_android_openssl_libdir}/${_qgc_android_libcrypto}")
+            configure_file(
+                "${_qgc_android_openssl_libdir}/${_qgc_android_libcrypto}"
+                "${_qgc_android_openssl_copy_dir}/libcrypto.so"
+                COPYONLY
+            )
+            list(APPEND _qgc_android_openssl_libs
+                "${_qgc_android_openssl_copy_dir}/libcrypto.so"
+            )
+        endif()
+    endif()
+
+    set(_qgc_android_openssl_libs_existing)
+    foreach(_qgc_lib IN LISTS _qgc_android_openssl_libs)
+        if(EXISTS "${_qgc_lib}")
+            list(APPEND _qgc_android_openssl_libs_existing "${_qgc_lib}")
+        else()
+            message(WARNING "QGC: OpenSSL runtime library not found: ${_qgc_lib}")
+        endif()
+    endforeach()
+
+    if(_qgc_android_openssl_libs_existing)
+        set_property(TARGET ${CMAKE_PROJECT_NAME}
+            APPEND PROPERTY QT_ANDROID_EXTRA_LIBS
+                ${_qgc_android_openssl_libs_existing}
+        )
+    endif()
+
+    unset(_qgc_android_openssl_libs)
+    unset(_qgc_android_openssl_libs_existing)
+    unset(_qgc_android_openssl_root)
+    unset(_qgc_android_openssl_dir)
+    unset(_qgc_android_openssl_libdir)
+    unset(_qgc_android_libcrypto)
+    unset(_qgc_android_libssl)
+    unset(_qgc_android_openssl_copy_dir)
+    unset(_qgc_lib)
 else()
     message(WARNING "QGC: Failed to add Android OpenSSL libraries")
+endif()
+
+# Ensure the OpenSSL-backed TLS plugin ships in the APK; without it Qt reports
+# "no functional TLS backend was found" and encrypted sockets fail. Resolve the
+# plugin directory from the Android Qt install (androiddeployqt expects a
+# directory, not an individual .so path).
+get_filename_component(_qt_cmake_dir "${Qt6_DIR}" DIRECTORY)      # .../lib/cmake
+get_filename_component(_qt_prefix_dir "${_qt_cmake_dir}/../.." REALPATH) # Qt root
+set(_qt_tls_plugin_dir "${_qt_prefix_dir}/plugins/tls")
+if(IS_DIRECTORY "${_qt_tls_plugin_dir}")
+    set_property(TARGET ${CMAKE_PROJECT_NAME}
+        APPEND PROPERTY QT_ANDROID_EXTRA_PLUGINS
+            "${_qt_tls_plugin_dir}"
+    )
+else()
+    message(WARNING "QGC: TLS plugin directory not found: ${_qt_tls_plugin_dir}")
 endif()
 
 # ----------------------------------------------------------------------------

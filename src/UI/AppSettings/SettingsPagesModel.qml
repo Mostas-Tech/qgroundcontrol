@@ -49,12 +49,27 @@ ListModel {
     }
 
     ListElement {
+        name: qsTr("Ihattys Server")
+        url: "qrc:/qml/QGroundControl/AppSettings/IhattysSettings.qml"
+        iconUrl: "qrc:/InstrumentValueIcons/servers.svg"
+        pageVisible: function() { return QGroundControl.settingsManager.ihattysSettings.visible }
+    }
+
+    ListElement {
         name: qsTr("ADSB Server")
         url: "qrc:/qml/QGroundControl/AppSettings/ADSBServerSettings.qml"
         iconUrl: "qrc:/InstrumentValueIcons/airplane.svg"
         pageVisible: function() { return true }
     }
-
+    ListElement {
+        name: qsTr("NTRIP/RTK")
+        url: "qrc:/qml/QGroundControl/AppSettings/NTRIPSettings.qml"
+        iconUrl: "qrc:/InstrumentValueIcons/globe.svg"
+        pageVisible: function() {
+            return QGroundControl.settingsManager &&
+                   QGroundControl.settingsManager.ntripSettings !== undefined
+        }
+    }
     ListElement {
         name: qsTr("Comm Links")
         url: "qrc:/qml/QGroundControl/AppSettings/LinkSettings.qml"

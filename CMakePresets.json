@@ -7,7 +7,7 @@
       "name": "android-ihattys-debug",
       "displayName": "Android arm64 + Qt 6.10.0 (Debug)",
       "generator": "Ninja",
-      "binaryDir": "${sourceDir}/build/android-arm64-dbg",
+      "binaryDir": "${sourceDir}/build/a",
       "cacheVariables": {
         
         "CMAKE_BUILD_TYPE": "Debug",

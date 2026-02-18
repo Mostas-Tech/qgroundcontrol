@@ -28,12 +28,14 @@ class FlightMapSettings;
 class FlightModeSettings;
 class FlyViewSettings;
 class GimbalControllerSettings;
+class IhattysSettings;
 class MapsSettings;
 class OfflineMapsSettings;
 class PlanViewSettings;
 class RemoteIDSettings;
 class RTKSettings;
 class UnitsSettings;
+class NTRIPSettings;
 class VideoSettings;
 class Viewer3DSettings;
 class MavlinkSettings;
@@ -61,12 +63,14 @@ class SettingsManager : public QObject
     Q_MOC_INCLUDE("FlightModeSettings.h")
     Q_MOC_INCLUDE("FlyViewSettings.h")
     Q_MOC_INCLUDE("GimbalControllerSettings.h")
+    Q_MOC_INCLUDE("IhattysSettings.h")
     Q_MOC_INCLUDE("MapsSettings.h")
     Q_MOC_INCLUDE("OfflineMapsSettings.h")
     Q_MOC_INCLUDE("PlanViewSettings.h")
     Q_MOC_INCLUDE("RemoteIDSettings.h")
     Q_MOC_INCLUDE("RTKSettings.h")
     Q_MOC_INCLUDE("UnitsSettings.h")
+    Q_MOC_INCLUDE("NTRIPSettings.h")
     Q_MOC_INCLUDE("VideoSettings.h")
     Q_MOC_INCLUDE("MavlinkSettings.h")
 #ifdef QGC_VIEWER3D
@@ -87,12 +91,14 @@ class SettingsManager : public QObject
     Q_PROPERTY(QObject *flightModeSettings              READ flightModeSettings             CONSTANT)
     Q_PROPERTY(QObject *flyViewSettings                 READ flyViewSettings                CONSTANT)
     Q_PROPERTY(QObject *gimbalControllerSettings        READ gimbalControllerSettings       CONSTANT)
+    Q_PROPERTY(QObject *ihattysSettings                 READ ihattysSettings                CONSTANT)
     Q_PROPERTY(QObject *mapsSettings                    READ mapsSettings                   CONSTANT)
     Q_PROPERTY(QObject *offlineMapsSettings             READ offlineMapsSettings            CONSTANT)
     Q_PROPERTY(QObject *planViewSettings                READ planViewSettings               CONSTANT)
     Q_PROPERTY(QObject *remoteIDSettings                READ remoteIDSettings               CONSTANT)
     Q_PROPERTY(QObject *rtkSettings                     READ rtkSettings                    CONSTANT)
     Q_PROPERTY(QObject *unitsSettings                   READ unitsSettings                  CONSTANT)
+    Q_PROPERTY(QObject *ntripSettings                   READ ntripSettings                  CONSTANT)
     Q_PROPERTY(QObject *videoSettings                   READ videoSettings                  CONSTANT)
     Q_PROPERTY(QObject *mavlinkSettings                 READ mavlinkSettings                CONSTANT)
 #ifdef QGC_VIEWER3D
@@ -128,12 +134,14 @@ public:
     FlightModeSettings *flightModeSettings() const;
     FlyViewSettings *flyViewSettings() const;
     GimbalControllerSettings *gimbalControllerSettings() const;
+    IhattysSettings *ihattysSettings() const;
     MapsSettings *mapsSettings() const;
     OfflineMapsSettings *offlineMapsSettings() const;
     PlanViewSettings *planViewSettings() const;
     RemoteIDSettings *remoteIDSettings() const;
     RTKSettings *rtkSettings() const;
     UnitsSettings *unitsSettings() const;
+    NTRIPSettings *ntripSettings() const;
     VideoSettings *videoSettings() const;
     MavlinkSettings *mavlinkSettings() const;
 #ifdef QGC_VIEWER3D
@@ -157,12 +165,14 @@ private:
     FlightModeSettings *_flightModeSettings = nullptr;
     FlyViewSettings *_flyViewSettings = nullptr;
     GimbalControllerSettings *_gimbalControllerSettings = nullptr;
+    IhattysSettings *_ihattysSettings = nullptr;
     MapsSettings *_mapsSettings = nullptr;
     OfflineMapsSettings *_offlineMapsSettings = nullptr;
     PlanViewSettings *_planViewSettings = nullptr;
     RemoteIDSettings *_remoteIDSettings = nullptr;
     RTKSettings *_rtkSettings = nullptr;
     UnitsSettings *_unitsSettings = nullptr;
+    NTRIPSettings *_ntripSettings = nullptr;
     VideoSettings *_videoSettings = nullptr;
     MavlinkSettings *_mavlinkSettings = nullptr;
 #ifdef QGC_VIEWER3D

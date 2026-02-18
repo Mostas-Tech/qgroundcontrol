@@ -24,12 +24,14 @@
 #include "FlightModeSettings.h"
 #include "FlyViewSettings.h"
 #include "GimbalControllerSettings.h"
+#include "IhattysSettings.h"
 #include "MapsSettings.h"
 #include "OfflineMapsSettings.h"
 #include "PlanViewSettings.h"
 #include "RemoteIDSettings.h"
 #include "RTKSettings.h"
 #include "UnitsSettings.h"
+#include "NTRIPSettings.h"
 #include "VideoSettings.h"
 #include "MavlinkSettings.h"
 #ifdef QGC_VIEWER3D
@@ -62,6 +64,13 @@ SettingsManager *SettingsManager::instance()
     return _settingsManagerInstance();
 }
 
+void SettingsManager::registerQmlTypes()
+{
+    (void) qmlRegisterUncreatableType<SettingsManager>("QGroundControl.SettingsManager", 1, 0, "SettingsManager", "Reference only");
+    (void) qmlRegisterUncreatableType<NTRIPSettings>("QGroundControl", 1, 0, "NTRIPSettings", "Reference only");
+
+}
+
 void SettingsManager::init()
 {
     _unitsSettings = new UnitsSettings(this); // Must be first since AppSettings references it
@@ -79,11 +88,13 @@ void SettingsManager::init()
     _flightModeSettings = new FlightModeSettings(this);
     _flyViewSettings = new FlyViewSettings(this);
     _gimbalControllerSettings = new GimbalControllerSettings(this);
+    _ihattysSettings = new IhattysSettings(this);
     _mapsSettings = new MapsSettings(this);
     _offlineMapsSettings = new OfflineMapsSettings(this);
     _planViewSettings = new PlanViewSettings(this);
     _remoteIDSettings = new RemoteIDSettings(this);
     _rtkSettings = new RTKSettings(this);
+    _ntripSettings = new NTRIPSettings(this);
     _videoSettings = new VideoSettings(this);
     _mavlinkSettings = new MavlinkSettings(this);
 #ifdef QGC_VIEWER3D
@@ -110,12 +121,14 @@ FlightMapSettings *SettingsManager::flightMapSettings() const { return _flightMa
 FlightModeSettings *SettingsManager::flightModeSettings() const { return _flightModeSettings; }
 FlyViewSettings *SettingsManager::flyViewSettings() const { return _flyViewSettings; }
 GimbalControllerSettings *SettingsManager::gimbalControllerSettings() const { return _gimbalControllerSettings; }
+IhattysSettings *SettingsManager::ihattysSettings() const { return _ihattysSettings; }
 MapsSettings *SettingsManager::mapsSettings() const { return _mapsSettings; }
 OfflineMapsSettings *SettingsManager::offlineMapsSettings() const { return _offlineMapsSettings; }
 PlanViewSettings *SettingsManager::planViewSettings() const { return _planViewSettings; }
 RemoteIDSettings *SettingsManager::remoteIDSettings() const { return _remoteIDSettings; }
 RTKSettings *SettingsManager::rtkSettings() const { return _rtkSettings; }
 UnitsSettings *SettingsManager::unitsSettings() const { return _unitsSettings; }
+NTRIPSettings *SettingsManager::ntripSettings() const { return _ntripSettings; }
 VideoSettings *SettingsManager::videoSettings() const { return _videoSettings; }
 MavlinkSettings *SettingsManager::mavlinkSettings() const { return _mavlinkSettings; }
 #ifdef QGC_VIEWER3D

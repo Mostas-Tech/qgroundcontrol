@@ -43,6 +43,7 @@
 #include "SettingsManager.h"
 #include "MavlinkSettings.h"
 #include "AppSettings.h"
+#include "IhattysSettings.h"
 #include "UDPLink.h"
 #include "Vehicle.h"
 #include "VehicleComponent.h"
@@ -239,11 +240,51 @@ void QGCApplication::init()
 
 
     _ihattys = std::make_unique<IhattysServerService>(this);
-    // Optional: make port configurable later via App Settings; for now default is fine
-    if (!_ihattys->start()) {
-        qCWarning(QGCApplicationLog) << "IHATTYS gRPC server failed to start";
-    } else {
-        qCWarning(QGCApplicationLog) << "IHATTYS gRPC server listening on" << _ihattys->listenAddress();
+    if (auto* settings = SettingsManager::instance()->ihattysSettings()) {
+        Fact* const enabledFact = settings->ihattysServerEnabled();
+        Fact* const hostFact = settings->ihattysServerHostAddress();
+        Fact* const portFact = settings->ihattysServerPort();
+
+        auto buildListenAddress = [hostFact, portFact]() {
+            QString host = hostFact->rawValue().toString().trimmed();
+            if (host.isEmpty()) {
+                host = QStringLiteral("0.0.0.0");
+            }
+
+            QString portText = portFact->rawValue().toString().trimmed();
+            bool ok = false;
+            uint port = portText.toUInt(&ok);
+            if (!ok || port == 0 || port > 65535) {
+                port = 50051;
+            }
+
+            return QStringLiteral("%1:%2").arg(host).arg(port);
+        };
+
+        auto applySettings = [this, enabledFact, buildListenAddress]() {
+            const QString listenAddress = buildListenAddress();
+            _ihattys->setListenAddress(listenAddress.toStdString());
+
+            if (enabledFact->rawValue().toBool()) {
+                if (_ihattys->isRunning()) {
+                    _ihattys->stop();
+                }
+                if (!_ihattys->start()) {
+                    qCWarning(QGCApplicationLog) << "IHATTYS gRPC server failed to start at" << listenAddress;
+                    enabledFact->setRawValue(false);
+                } else {
+                    qCDebug(QGCApplicationLog) << "IHATTYS gRPC server listening on" << listenAddress;
+                }
+            } else if (_ihattys->isRunning()) {
+                _ihattys->stop();
+            }
+        };
+
+        (void) connect(enabledFact, &Fact::rawValueChanged, this, [applySettings](const QVariant&) { applySettings(); });
+        (void) connect(hostFact, &Fact::rawValueChanged, this, [applySettings](const QVariant&) { applySettings(); });
+        (void) connect(portFact, &Fact::rawValueChanged, this, [applySettings](const QVariant&) { applySettings(); });
+
+        applySettings();
     }
     connect(this, &QCoreApplication::aboutToQuit, this, [this](){
         if (_ihattys) _ihattys->stop();

@@ -1,0 +1,26 @@
+{
+    "version": 1,
+    "fileType": "FactMetaData",
+    "QGC.MetaData.Facts":
+[
+{
+    "name":         "ihattysServerEnabled",
+    "shortDesc":    "Enable Ihattys server",
+    "longDesc":     "Start the Ihattys gRPC server",
+    "type":         "bool",
+    "default":      true
+},
+{
+    "name":         "ihattysServerHostAddress",
+    "shortDesc":    "Host address",
+    "type":         "string",
+    "default":      "0.0.0.0"
+},
+{
+    "name":         "ihattysServerPort",
+    "shortDesc":    "Server port",
+    "type":         "string",
+    "default":      50051
+}
+]
+}

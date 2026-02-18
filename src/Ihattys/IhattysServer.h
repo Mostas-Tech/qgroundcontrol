@@ -10,6 +10,7 @@
 #include <thread>
 #include <mutex>
 #include <condition_variable>
+#include <limits>
 
 // gRPC
 #include <grpcpp/grpcpp.h>
@@ -18,6 +19,7 @@
 // Use MavSDK proto-generated headers
 #include "mavsdk/core/core.grpc.pb.h"
 #include "mavsdk/telemetry/telemetry.grpc.pb.h"
+#include "mavsdk/telemetry_server/telemetry_server.grpc.pb.h"
 #include "mavsdk/action/action.grpc.pb.h"
 #include "mavsdk/arm_authorizer_server/arm_authorizer_server.grpc.pb.h"
 #include "mavsdk/info/info.grpc.pb.h"
@@ -34,14 +36,26 @@ struct TelemetrySnapshot {
     double lon_deg = std::numeric_limits<double>::quiet_NaN();
     double alt_amsl_m = std::numeric_limits<double>::quiet_NaN();
     double rel_alt_m  = std::numeric_limits<double>::quiet_NaN();
+    double home_lat_deg = std::numeric_limits<double>::quiet_NaN();
+    double home_lon_deg = std::numeric_limits<double>::quiet_NaN();
+    double home_alt_amsl_m = std::numeric_limits<double>::quiet_NaN();
 
     float roll_deg  = std::numeric_limits<float>::quiet_NaN();
     float pitch_deg = std::numeric_limits<float>::quiet_NaN();
     float yaw_deg   = std::numeric_limits<float>::quiet_NaN();
+    double heading_deg = std::numeric_limits<double>::quiet_NaN();
+
+    float vel_north_m_s = std::numeric_limits<float>::quiet_NaN();
+    float vel_east_m_s  = std::numeric_limits<float>::quiet_NaN();
+    float vel_down_m_s  = std::numeric_limits<float>::quiet_NaN();
 
     bool in_air = false;
+    bool armed = false;
+    bool rc_receiver_status = false;
 
     int gps_sat_count = 0;
+    // Raw GPS_FIX_TYPE (MAVLink) value; defaults to NO_GPS (0)
+    int gps_fix_type = 0;
     // Derived 0..5 per your levels
     int gps_signal_level = 0;
 
@@ -49,6 +63,23 @@ struct TelemetrySnapshot {
     int64_t attitude_timestamp_us = 0;
 
     int32_t vehicle_id = -1;
+};
+
+/// Watchdog to hand control back to the pilot after Hold calls stop.
+class HoldWatchdog : public QObject {
+    Q_OBJECT
+public:
+    explicit HoldWatchdog(QObject* parent = nullptr);
+    void recordHold();
+    void setTimeoutMs(int timeoutMs) { _timeoutMs = timeoutMs; }
+
+private slots:
+    void _checkTimeout();
+
+private:
+    QTimer _timer;
+    std::atomic<int64_t> _lastHoldMs{0};
+    int _timeoutMs = 2000;
 };
 
 /// QObject living on Qt main thread that listens to Vehicle signals / Facts,
@@ -62,6 +93,7 @@ public:
     void detachVehicle();
 
     TelemetrySnapshot snapshot() const;
+    void updateRcReceiverStatus(bool is_available);
 
 private slots:
     void _pollFromVehicle(); // periodic polling when signals aren’t convenient
@@ -119,9 +151,11 @@ public:
     explicit IhattysServerService(QObject* parent = nullptr);
     ~IhattysServerService() override;
 
-    // Start/Stop server. Hard-coded address per your request: 0.0.0.0:50051
+    // Start/Stop server. Listen address is configurable via settings.
     bool start();
     void stop();
+    void setListenAddress(const std::string& address);
+    bool isRunning() const { return _server != nullptr; }
 
     // Bind to app lifecycle
     static void bindToQGCAppLifecycle(QGCApplication* app, MultiVehicleManager* mvm);
@@ -141,10 +175,15 @@ private:
     // Dependencies (main thread)
     TelemetryCache _telemetryCache;
     ArmAuthState   _armAuth;
+    HoldWatchdog   _holdWatchdog;
 
     // gRPC server state
     std::unique_ptr<grpc::Server> _server;
+    //if android build ip 0.0.0.0
+
+    
     std::string _listenAddress = "0.0.0.0:50051";
+    
     std::thread _serverThread;
 
     // ==== Service implementations (synchronous for clarity) ====
@@ -168,6 +207,11 @@ private:
             const mavsdk::rpc::telemetry::SubscribePositionRequest*,
             grpc::ServerWriter<mavsdk::rpc::telemetry::PositionResponse>* writer) override;
 
+        grpc::Status SubscribeHome(
+            grpc::ServerContext*,
+            const mavsdk::rpc::telemetry::SubscribeHomeRequest*,
+            grpc::ServerWriter<mavsdk::rpc::telemetry::HomeResponse>* writer) override;
+
         grpc::Status SubscribeAltitude(
             grpc::ServerContext*,
             const mavsdk::rpc::telemetry::SubscribeAltitudeRequest*,
@@ -178,10 +222,25 @@ private:
             const mavsdk::rpc::telemetry::SubscribeInAirRequest*,
             grpc::ServerWriter<mavsdk::rpc::telemetry::InAirResponse>* writer) override;
 
+        grpc::Status SubscribeArmed(
+            grpc::ServerContext*,
+            const mavsdk::rpc::telemetry::SubscribeArmedRequest*,
+            grpc::ServerWriter<mavsdk::rpc::telemetry::ArmedResponse>* writer) override;
+
         grpc::Status SubscribeAttitudeEuler(
             grpc::ServerContext*,
             const mavsdk::rpc::telemetry::SubscribeAttitudeEulerRequest*,
             grpc::ServerWriter<mavsdk::rpc::telemetry::AttitudeEulerResponse>* writer) override;
+
+        grpc::Status SubscribeVelocityNed(
+            grpc::ServerContext*,
+            const mavsdk::rpc::telemetry::SubscribeVelocityNedRequest*,
+            grpc::ServerWriter<mavsdk::rpc::telemetry::VelocityNedResponse>* writer) override;
+
+        grpc::Status SubscribeHeading(
+            grpc::ServerContext*,
+            const mavsdk::rpc::telemetry::SubscribeHeadingRequest*,
+            grpc::ServerWriter<mavsdk::rpc::telemetry::HeadingResponse>* writer) override;
 
         grpc::Status SubscribeGpsInfo(
             grpc::ServerContext*,
@@ -192,13 +251,27 @@ private:
         const TelemetryCache* _cache{};
     };
 
+    class TelemetryServerServiceImpl final : public mavsdk::rpc::telemetry_server::TelemetryServerService::Service {
+    public:
+        explicit TelemetryServerServiceImpl(TelemetryCache* cache) : _cache(cache) {}
+        grpc::Status PublishSysStatus(
+            grpc::ServerContext*,
+            const mavsdk::rpc::telemetry_server::PublishSysStatusRequest* request,
+            mavsdk::rpc::telemetry_server::PublishSysStatusResponse* response) override;
+
+    private:
+        TelemetryCache* _cache{};
+    };
     
 
     class ActionServiceImpl final : public mavsdk::rpc::action::ActionService::Service {
     public:
+        explicit ActionServiceImpl(HoldWatchdog* holdWatchdog) : _holdWatchdog(holdWatchdog) {}
         grpc::Status Hold(grpc::ServerContext*,
                           const mavsdk::rpc::action::HoldRequest*,
                           mavsdk::rpc::action::HoldResponse* response) override;
+    private:
+        HoldWatchdog* _holdWatchdog{};
     };
 
     class ArmAuthorizerServerServiceImpl final : public mavsdk::rpc::arm_authorizer_server::ArmAuthorizerServerService::Service {
@@ -243,6 +316,7 @@ private:
     // Instances
     std::unique_ptr<CoreServiceImpl>             _coreSvc;
     std::unique_ptr<TelemetryServiceImpl>        _telemetrySvc;
+    std::unique_ptr<TelemetryServerServiceImpl>  _telemetryServerSvc;
     std::unique_ptr<ActionServiceImpl>           _actionSvc;
     std::unique_ptr<ArmAuthorizerServerServiceImpl> _armSvc;
     std::unique_ptr<InfoServiceImpl>             _infoSvc;
@@ -250,4 +324,3 @@ private:
     // Helpers
     static void _sleepMillis(int ms);
 };
-

@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #pragma once
 
 #include <QtCore/QLoggingCategory>
@@ -24,13 +15,13 @@ class ParameterManager;
 class ParameterTableModel : public QAbstractTableModel
 {
     Q_OBJECT
-    
+
 public:
     explicit ParameterTableModel(QObject* parent = nullptr);
     ~ParameterTableModel() override;
 
     typedef QVector<QVariant> ColumnData;
-    
+
     enum {
         FactRole = Qt::UserRole + 1
     };
@@ -42,12 +33,12 @@ public:
     };
 
     Q_PROPERTY(int rowCount READ rowCount NOTIFY rowCountChanged)
-    
+
     void append      (Fact* fact);
     void insert      (int row, Fact* fact);
     void clear       ();
-    void beginReset  ();
-    void endReset    ();
+    void beginReset  (); ///< Supports nesting - only outermost call has effect
+    void endReset    (); ///< Supports nesting - only outermost call has effect
     Fact*            factAt(int row) const;
 
     // Overrides from QAbstractTableModel
@@ -60,9 +51,11 @@ public:
     void rowCountChanged(int count);
 
 private:
+    bool _isResetting() const { return _resetNestingCount > 0; }
+
     int                 _tableViewColCount = 3;
     QList<ColumnData>   _tableData;
-    bool                _externalBeginResetModel = false;
+    uint                _resetNestingCount = 0;
 };
 
 class ParameterEditorGroup : public QObject

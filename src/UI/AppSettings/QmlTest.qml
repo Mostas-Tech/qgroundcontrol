@@ -3,9 +3,7 @@ import QtQuick.Controls
 import QtQuick.Layouts
 
 import QGroundControl
-
 import QGroundControl.Controls
-
 
 Rectangle {
     id: _root
@@ -15,7 +13,6 @@ Rectangle {
 
     QGCPalette { id: qgcPal }
 
-    property var palette:           QGCPalette { colorGroupEnabled: true }
     property var enabledPalette:    QGCPalette { colorGroupEnabled: true }
     property var disabledPalette:   QGCPalette { colorGroupEnabled: false }
 
@@ -41,14 +38,14 @@ Rectangle {
 
         qgcPal.globalTheme = QGCPalette.Light
         qgcPal.colorGroupEnabled = true
-        themeObj.light["enabled"] = exportPaletteColors(palette);
+        themeObj.light["enabled"] = exportPaletteColors(qgcPal);
         qgcPal.colorGroupEnabled = false
-        themeObj.light["disabled"] = exportPaletteColors(palette);
+        themeObj.light["disabled"] = exportPaletteColors(qgcPal);
         qgcPal.globalTheme = QGCPalette.Dark
         qgcPal.colorGroupEnabled = true
-        themeObj.dark["enabled"] = exportPaletteColors(palette);
+        themeObj.dark["enabled"] = exportPaletteColors(qgcPal);
         qgcPal.colorGroupEnabled = false
-        themeObj.dark["disabled"] = exportPaletteColors(palette);
+        themeObj.dark["disabled"] = exportPaletteColors(qgcPal);
 
         qgcPal.globalTheme = oldTheme;
         qgcPal.colorGroupEnabled = true;
@@ -63,7 +60,7 @@ Rectangle {
         for(var i = 0; i < qgcPal.colors.length; i++) {
             var cs = qgcPal.colors[i]
             var csc = cs + 'Colors'
-            palToExport += 'DECLARE_QGC_COLOR(' + cs + ', \"' + palette[csc][1] + '\", \"' + palette[csc][0] + '\", \"' + palette[csc][3] + '\", \"' + palette[csc][2] + '\")\n'
+            palToExport += 'DECLARE_QGC_COLOR(' + cs + ', \"' + qgcPal[csc][1] + '\", \"' + qgcPal[csc][0] + '\", \"' + qgcPal[csc][3] + '\", \"' + qgcPal[csc][2] + '\")\n'
         }
         themeImportExportEdit.text = palToExport
     }
@@ -78,10 +75,10 @@ Rectangle {
             }
             palToExport +=
             'if (colorName == QStringLiteral(\"' + cs + '\")) {\n' +
-            '    colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor(\"' + palette[csc][2] + '\");\n' +
-            '    colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor(\"' + palette[csc][3] + '\");\n' +
-            '    colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor(\"' + palette[csc][0] + '\");\n' +
-            '    colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor(\"' + palette[csc][1] + '\");\n' +
+            '    colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupEnabled]   = QColor(\"' + qgcPal[csc][2] + '\");\n' +
+            '    colorInfo[QGCPalette::Dark][QGCPalette::ColorGroupDisabled]  = QColor(\"' + qgcPal[csc][3] + '\");\n' +
+            '    colorInfo[QGCPalette::Light][QGCPalette::ColorGroupEnabled]  = QColor(\"' + qgcPal[csc][0] + '\");\n' +
+            '    colorInfo[QGCPalette::Light][QGCPalette::ColorGroupDisabled] = QColor(\"' + qgcPal[csc][1] + '\");\n' +
             '}'
         }
         themeImportExportEdit.text = palToExport
@@ -94,14 +91,14 @@ Rectangle {
 
         qgcPal.globalTheme = QGCPalette.Light
         qgcPal.colorGroupEnabled = true
-        fillPalette(palette, jsonObj.light.enabled)
+        fillPalette(qgcPal, jsonObj.light.enabled)
         qgcPal.colorGroupEnabled = false
-        fillPalette(palette, jsonObj.light.disabled);
+        fillPalette(qgcPal, jsonObj.light.disabled);
         qgcPal.globalTheme = QGCPalette.Dark
         qgcPal.colorGroupEnabled = true
-        fillPalette(palette, jsonObj.dark.enabled);
+        fillPalette(qgcPal, jsonObj.dark.enabled);
         qgcPal.colorGroupEnabled = false
-        fillPalette(palette, jsonObj.dark.disabled);
+        fillPalette(qgcPal, jsonObj.dark.disabled);
 
         qgcPal.globalTheme = oldTheme;
         qgcPal.colorGroupEnabled = true;
@@ -311,8 +308,8 @@ Rectangle {
 
                     // Populate the model with all color names in the global palette
                     Component.onCompleted: {
-                        for(var colorNameStr in palette) {
-                            if(palette[colorNameStr].r !== undefined) {
+                        for(var colorNameStr in enabledPalette) {
+                            if(enabledPalette[colorNameStr].r !== undefined) {
                                 paletteColorList.append({ colorName: colorNameStr });
                             }
                         }
@@ -571,6 +568,33 @@ Rectangle {
                             }
                         }
 
+                        // QGCCheckBoxSlider
+                        Loader {
+                            sourceComponent: ctlRowHeader
+                            property string text: "QGCCheckBoxSlider"
+                        }
+                        Rectangle {
+                            width: ctlPrevColumn._colWidth
+                            height: ctlPrevColumn._height
+                            color: ctlPrevColumn._bkColor
+                            QGCCheckBoxSlider {
+                                anchors.fill: parent
+                                anchors.margins: 5
+                                text: qsTr("Check Box Slider")
+                            }
+                        }
+                        Rectangle {
+                            width: ctlPrevColumn._colWidth
+                            height: ctlPrevColumn._height
+                            color: ctlPrevColumn._bkColor
+                            QGCCheckBoxSlider {
+                                anchors.fill: parent
+                                anchors.margins: 5
+                                text: qsTr("Check Box Slider")
+                                enabled: false
+                            }
+                        }
+
                         // QGCTextField
                         Loader {
                             sourceComponent: ctlRowHeader
@@ -659,6 +683,269 @@ Rectangle {
                 Loader {
                     property color backgroundColor: qgcPal.windowShadeDark
                     sourceComponent: arbBox
+                }
+            }
+
+            Item{
+                height: 20;
+                width:  1;
+            }
+
+            // SettingsGroupLayout Test
+            GroupBox {
+                title: "SettingsGroupLayout Test"
+                anchors.horizontalCenter: parent.horizontalCenter
+
+                background: Rectangle {
+                    color: qgcPal.window
+                    border.color: qgcPal.text
+                    border.width: 1
+                }
+
+                Column {
+                    spacing: ScreenTools.defaultFontPixelHeight
+
+                    // Controls for testing properties
+                    Row {
+                        spacing: ScreenTools.defaultFontPixelWidth * 2
+
+                        QGCCheckBox {
+                            id: showBorderCheck
+                            text: "showBorder"
+                            checked: true
+                        }
+
+                        QGCCheckBox {
+                            id: showDividersCheck
+                            text: "showDividers"
+                            checked: true
+                        }
+
+                        QGCCheckBox {
+                            id: showHeadingCheck
+                            text: "Show Heading"
+                            checked: true
+                        }
+
+                        QGCCheckBox {
+                            id: showDescriptionCheck
+                            text: "Show Description"
+                            checked: true
+                        }
+                    }
+
+                    Row {
+                        spacing: ScreenTools.defaultFontPixelWidth * 2
+
+                        QGCLabel { text: "Visibility toggles:"; font.bold: true }
+
+                        QGCCheckBox {
+                            id: item1Visible
+                            text: "Item 1"
+                            checked: true
+                        }
+
+                        QGCCheckBox {
+                            id: item2Visible
+                            text: "Item 2"
+                            checked: true
+                        }
+
+                        QGCCheckBox {
+                            id: item3Visible
+                            text: "Item 3"
+                            checked: true
+                        }
+
+                        QGCCheckBox {
+                            id: item4Visible
+                            text: "Item 4"
+                            checked: true
+                        }
+                    }
+
+                    Row {
+                        spacing: ScreenTools.defaultFontPixelWidth * 2
+
+                        QGCLabel { text: "Repeater toggles:"; font.bold: true }
+
+                        QGCCheckBox {
+                            id: repeaterShowDividers
+                            text: "Dividers"
+                            checked: true
+                        }
+
+                        QGCCheckBox {
+                            id: repeater1Visible
+                            text: "Rep 1"
+                            checked: true
+                        }
+
+                        QGCCheckBox {
+                            id: repeater2Visible
+                            text: "Rep 2"
+                            checked: true
+                        }
+
+                        QGCCheckBox {
+                            id: repeater3Visible
+                            text: "Rep 3"
+                            checked: true
+                        }
+
+                        QGCCheckBox {
+                            id: repeater4Visible
+                            text: "Rep 4"
+                            checked: true
+                        }
+
+                        QGCCheckBox {
+                            id: repeater5Visible
+                            text: "Rep 5"
+                            checked: true
+                        }
+                    }
+
+                    // Test SettingsGroupLayout with various content
+                    SettingsGroupLayout {
+                        width: ScreenTools.defaultFontPixelWidth * 60
+                        heading: showHeadingCheck.checked ? "Test Settings Group" : ""
+                        headingDescription: showDescriptionCheck.checked ? "This is a description of the settings group that explains what these settings are for." : ""
+                        showBorder: showBorderCheck.checked
+                        showDividers: showDividersCheck.checked
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: item1Visible.checked
+
+                            QGCLabel {
+                                text: "Setting 1:"
+                                Layout.fillWidth: true
+                            }
+                            QGCTextField {
+                                text: "Value 1"
+                                Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 15
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: item2Visible.checked
+
+                            QGCLabel {
+                                text: "Setting 2:"
+                                Layout.fillWidth: true
+                            }
+                            QGCComboBox {
+                                model: ["Option 1", "Option 2", "Option 3"]
+                                Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 15
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: item3Visible.checked
+
+                            QGCCheckBox {
+                                text: "Enable feature"
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            visible: item4Visible.checked
+
+                            QGCLabel {
+                                text: "Setting 4:"
+                                Layout.fillWidth: true
+                            }
+                            QGCButton {
+                                text: "Configure"
+                            }
+                        }
+                    }
+
+                    // Nested SettingsGroupLayout test
+                    QGCLabel {
+                        text: "Nested SettingsGroupLayout:"
+                        font.bold: true
+                    }
+
+                    SettingsGroupLayout {
+                        width: ScreenTools.defaultFontPixelWidth * 60
+                        heading: "Outer Group"
+                        showBorder: true
+                        showDividers: true
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            QGCLabel { text: "Outer setting"; Layout.fillWidth: true }
+                            QGCTextField { text: "Value" }
+                        }
+
+                        SettingsGroupLayout {
+                            Layout.fillWidth: true
+                            heading: "Inner Group"
+                            headingDescription: "Nested group inside outer group"
+                            showBorder: true
+                            showDividers: false
+
+                            QGCCheckBox {
+                                text: "Inner checkbox 1"
+                                Layout.fillWidth: true
+                            }
+
+                            QGCCheckBox {
+                                text: "Inner checkbox 2"
+                                Layout.fillWidth: true
+                            }
+                        }
+
+                        RowLayout {
+                            Layout.fillWidth: true
+                            QGCLabel { text: "Another outer setting"; Layout.fillWidth: true }
+                            QGCComboBox { model: ["A", "B", "C"] }
+                        }
+                    }
+
+                    // Test with Repeater
+                    QGCLabel {
+                        text: "SettingsGroupLayout with Repeater:"
+                        font.bold: true
+                    }
+
+                    SettingsGroupLayout {
+                        width: ScreenTools.defaultFontPixelWidth * 60
+                        heading: "Repeater Test"
+                        showBorder: true
+                        showDividers: repeaterShowDividers.checked
+
+                        Repeater {
+                            model: 5
+                            delegate: RowLayout {
+                                Layout.fillWidth: true
+                                visible: {
+                                    switch(index) {
+                                        case 0: return repeater1Visible.checked
+                                        case 1: return repeater2Visible.checked
+                                        case 2: return repeater3Visible.checked
+                                        case 3: return repeater4Visible.checked
+                                        case 4: return repeater5Visible.checked
+                                        default: return true
+                                    }
+                                }
+                                QGCLabel {
+                                    text: "Repeated Item " + (index + 1) + ":"
+                                    Layout.fillWidth: true
+                                }
+                                QGCTextField {
+                                    text: "Value " + (index + 1)
+                                    Layout.preferredWidth: ScreenTools.defaultFontPixelWidth * 15
+                                }
+                            }
+                        }
+                    }
                 }
             }
 

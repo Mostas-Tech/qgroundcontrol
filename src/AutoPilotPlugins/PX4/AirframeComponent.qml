@@ -1,24 +1,10 @@
-/****************************************************************************
- *
- * (c) 2009-2020 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
-
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
 
 import QGroundControl
-
 import QGroundControl.FactControls
-
 import QGroundControl.Controls
-
-
 
 SetupPage {
     id:             airframePage
@@ -118,7 +104,7 @@ SetupPage {
                     id:             applyButton
                     anchors.right:  parent.right
                     text:           qsTr("Apply and Restart")
-                    onClicked:      mainWindow.showMessageDialog(qsTr("Apply and Restart"),
+                    onClicked:      QGroundControl.showMessageDialog(airframePage, qsTr("Apply and Restart"),
                                                                  qsTr("Clicking 'Apply' will save the changes you have made to your airframe configuration.<br><br>\
                                                                         All vehicle parameters other than Radio Calibration will be reset.<br><br>\
                                                                         Your vehicle will also be restarted in order to complete the process."),

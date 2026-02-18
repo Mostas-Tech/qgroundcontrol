@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "QGCLoggingCategory.h"
 
 #include <QtCore/QGlobalStatic>
@@ -33,8 +24,8 @@ void QGCLoggingCategoryManager::_insertSorted(QmlObjectListModel* model, QGCLogg
     model->append(item);
 }
 
-void QGCLoggingCategoryManager::registerCategory(const QString &fullCategory) 
-{ 
+void QGCLoggingCategoryManager::registerCategory(const QString &fullCategory)
+{
     //qDebug() << "Registering logging full category" << fullCategory;
 
     QString parentCategory;
@@ -47,7 +38,7 @@ void QGCLoggingCategoryManager::registerCategory(const QString &fullCategory)
         childCategory = fullCategory.mid(hierarchyIndex + 1);
         QString fullParentCategory = parentCategory + ".";
         //qDebug() << "  Parent category" << parentCategory << "child category" << childCategory << "full parent category" << fullParentCategory;
-        
+
         bool found = false;
         for (int j=0; j<currentParentModel->count(); j++) {
             auto item = qobject_cast<QGCLoggingCategoryItem*>(currentParentModel->get(j));
@@ -77,7 +68,7 @@ void QGCLoggingCategoryManager::registerCategory(const QString &fullCategory)
 void QGCLoggingCategoryManager::setCategoryLoggingOn(const QString &fullCategoryName, bool enable)
 {
     qCDebug(QGCLoggingCategoryRegisterLog) << "Set category logging" << fullCategoryName << enable;
-    
+
     QSettings settings;
     settings.beginGroup(kFilterRulesSettingsGroup);
     if (enable) {
@@ -184,11 +175,11 @@ QGCLoggingCategoryItem *QGCLoggingCategoryManager::_findLoggingCategory(const QS
     return nullptr;
 }
 
-QGCLoggingCategoryItem::QGCLoggingCategoryItem(const QString& _shortCategory, const QString& _fullCategory, bool _enabled, QObject* parent)
+QGCLoggingCategoryItem::QGCLoggingCategoryItem(const QString& shortCategory_, const QString& fullCategory_, bool enabled_, QObject* parent)
     : QObject(parent)
-    , shortCategory(_shortCategory)
-    , fullCategory(_fullCategory)
-    , _enabled(_enabled)
+    , shortCategory(shortCategory_)
+    , fullCategory(fullCategory_)
+    , _enabled(enabled_)
 {
     connect(this, &QGCLoggingCategoryItem::enabledChanged, this, [this]() {
         QGCLoggingCategoryManager::instance()->setCategoryLoggingOn(this->fullCategory, this->_enabled);

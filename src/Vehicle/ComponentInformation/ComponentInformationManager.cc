@@ -1,18 +1,9 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "ComponentInformationManager.h"
 #include "ComponentInformationTranslation.h"
 #include "ComponentInformationCache.h"
 #include "Vehicle.h"
 #include "FTPManager.h"
-#include "QGCLZMA.h"
+#include "QGCCompression.h"
 #include "CompInfoGeneral.h"
 #include "CompInfoParam.h"
 #include "CompInfoEvents.h"
@@ -329,18 +320,10 @@ void RequestMetaDataTypeStateMachine::_stateRequestCompInfoDeprecated(StateMachi
 
 QString RequestMetaDataTypeStateMachine::_downloadCompleteJsonWorker(const QString& fileName)
 {
-    QString outputFileName = fileName;
-
-    if (fileName.endsWith(".lzma", Qt::CaseInsensitive) || fileName.endsWith(".xz", Qt::CaseInsensitive)) {
-        outputFileName = (QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation)).absoluteFilePath(_currentCacheFileTag));
-        if (QGCLZMA::inflateLZMAFile(fileName, outputFileName)) {
-            QFile(fileName).remove();
-        } else {
-            qCWarning(ComponentInformationManagerLog) << "Inflate of compressed json failed" << _currentCacheFileTag;
-            outputFileName.clear();
-        }
-    } else {
-        outputFileName = fileName;
+    const QString tempPath = QDir(QStandardPaths::writableLocation(QStandardPaths::TempLocation)).absoluteFilePath(_currentCacheFileTag);
+    QString outputFileName = QGCCompression::decompressIfNeeded(fileName, tempPath);
+    if (outputFileName.isEmpty()) {
+        qCWarning(ComponentInformationManagerLog) << "Inflate of compressed json failed" << _currentCacheFileTag;
     }
 
     if (_currentFileValidCrc) {
@@ -381,18 +364,18 @@ void RequestMetaDataTypeStateMachine::_ftpDownloadProgress(float progress)
     }
 }
 
-void RequestMetaDataTypeStateMachine::_httpDownloadComplete(QString remoteFile, QString localFile, QString errorMsg)
+void RequestMetaDataTypeStateMachine::_httpDownloadComplete(bool success, const QString &localFile, const QString &errorMsg, [[maybe_unused]] bool fromCache)
 {
-    qCDebug(ComponentInformationManagerLog) << "RequestMetaDataTypeStateMachine::_httpDownloadComplete remoteFile:localFile:errorMsg" << remoteFile << localFile << errorMsg;
+    qCDebug(ComponentInformationManagerLog) << "RequestMetaDataTypeStateMachine::_httpDownloadComplete success:localFile:errorMsg" << success << localFile << errorMsg;
 
-    disconnect(qobject_cast<QGCCachedFileDownload*>(sender()), &QGCCachedFileDownload::downloadComplete, this, &RequestMetaDataTypeStateMachine::_httpDownloadComplete);
-    if (errorMsg.isEmpty()) {
+    disconnect(_compMgr->_cachedFileDownload, &QGCCachedFileDownload::finished, this, &RequestMetaDataTypeStateMachine::_httpDownloadComplete);
+    if (success) {
         if (_currentFileName) {
             *_currentFileName = _downloadCompleteJsonWorker(localFile);
         }
     } else if (qgcApp()->runningUnitTests()) {
         // Unit test should always succeed
-        qCWarning(ComponentInformationManagerLog) << "RequestMetaDataTypeStateMachine::_httpDownloadCompleteMetaDataJson failed remoteFile:localFile:errorMsg" << remoteFile << localFile << errorMsg;
+        qCWarning(ComponentInformationManagerLog) << "RequestMetaDataTypeStateMachine::_httpDownloadCompleteMetaDataJson failed localFile:errorMsg" << localFile << errorMsg;
     }
 
     advance();
@@ -422,13 +405,13 @@ void RequestMetaDataTypeStateMachine::_requestFile(const QString& cacheFileTag, 
                     advance();
                 }
             } else {
-                connect(_compMgr->_cachedFileDownload, &QGCCachedFileDownload::downloadComplete, this,
+                connect(_compMgr->_cachedFileDownload, &QGCCachedFileDownload::finished, this,
                         &RequestMetaDataTypeStateMachine::_httpDownloadComplete);
                 if (_compMgr->_cachedFileDownload->download(uri, crcValid ? 0 : ComponentInformationManager::cachedFileMaxAgeSec)) {
                     _downloadStartTime.start();
                 } else {
                     qCWarning(ComponentInformationManagerLog) << "RequestMetaDataTypeStateMachine::_requestFile QGCCachedFileDownload::download returned failure";
-                    disconnect(_compMgr->_cachedFileDownload, &QGCCachedFileDownload::downloadComplete, this,
+                    disconnect(_compMgr->_cachedFileDownload, &QGCCachedFileDownload::finished, this,
                                &RequestMetaDataTypeStateMachine::_httpDownloadComplete);
                     advance();
                 }

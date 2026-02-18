@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "AudioOutput.h"
 #include "Fact.h"
 #include "QGCLoggingCategory.h"
@@ -98,7 +89,7 @@ void AudioOutput::init(Fact *mutedFact)
     });
 
     if (AudioOutputLog().isDebugEnabled()) {
-        (void) connect(_engine, &QTextToSpeech::stateChanged, this, [this](QTextToSpeech::State state) {
+        (void) connect(_engine, &QTextToSpeech::stateChanged, this, [](QTextToSpeech::State state) {
             qCDebug(AudioOutputLog) << "TTS State changed to:" << state;
         });
         (void) connect(_engine, &QTextToSpeech::errorOccurred, this, [](QTextToSpeech::ErrorReason reason, const QString &errorString) {

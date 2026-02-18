@@ -5,12 +5,16 @@
 
 include(CMakeDependentOption)
 
+# Load centralized build configuration from .github/build-config.json
+include(BuildConfig)
+
 # ============================================================================
 # Application Metadata
 # ============================================================================
 
 set(QGC_APP_NAME "QGroundControl" CACHE STRING "Application name")
-set(QGC_APP_COPYRIGHT "Copyright (c) 2025 QGroundControl. All rights reserved." CACHE STRING "Copyright notice")
+string(TIMESTAMP _copyright_year "%Y")
+set(QGC_APP_COPYRIGHT "Copyright (c) ${_copyright_year} QGroundControl. All rights reserved." CACHE STRING "Copyright notice")
 set(QGC_APP_DESCRIPTION "Open Source Ground Control App" CACHE STRING "Application description")
 set(QGC_ORG_NAME "QGroundControl" CACHE STRING "Organization name")
 set(QGC_ORG_DOMAIN "qgroundcontrol.com" CACHE STRING "Organization domain")
@@ -26,18 +30,37 @@ set(QGC_SETTINGS_VERSION "9" CACHE STRING "Settings schema version")
 option(BUILD_SHARED_LIBS "Build using shared libraries" OFF)
 option(QGC_STABLE_BUILD "Stable release build (disables daily build features)" OFF)
 option(QGC_USE_CACHE "Enable compiler caching (ccache/sccache)" ON)
+option(QGC_UNITY_BUILD "Enable unity builds for faster compilation" OFF)
 option(QGC_BUILD_INSTALLER "Build platform installers/packages" ON)
+option(QGC_ENABLE_WERROR "Treat compiler warnings as errors for QGC source code" ON)
 
 # Debug-dependent options
 cmake_dependent_option(QGC_BUILD_TESTING "Enable unit tests" ON "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
 cmake_dependent_option(QGC_DEBUG_QML "Enable QML debugging/profiling" ON "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
+cmake_dependent_option(QGC_ENABLE_COVERAGE "Enable code coverage instrumentation" OFF "CMAKE_BUILD_TYPE STREQUAL Debug" OFF)
+option(QGC_ENABLE_CLANG_TIDY "Enable clang-tidy static analysis during build" OFF)
+
+# Git options
+option(GIT_SUBMODULE "Update submodules during configuration" OFF)
+
+# Link parallelism (Ninja only)
+set(QGC_LINK_PARALLEL_LEVEL 2 CACHE STRING "Maximum parallel link jobs (prevents OOM during LTO)")
+
+# Coverage thresholds
+set(QGC_COVERAGE_LINE_THRESHOLD 30 CACHE STRING "Minimum line coverage percentage")
+set(QGC_COVERAGE_BRANCH_THRESHOLD 20 CACHE STRING "Minimum branch coverage percentage")
+
+# Valgrind options
+set(QGC_VALGRIND_TIMEOUT_MULTIPLIER 20 CACHE STRING "Timeout multiplier for Valgrind")
 
 # ============================================================================
-# Feature Flags
+# Compression Format Options
 # ============================================================================
+# Core formats (gzip, xz, zstd, zip) are always enabled.
+# These optional formats are rarely used in the drone ecosystem.
 
-option(QGC_UTM_ADAPTER "Enable UTM (Unmanned Traffic Management) Adapter" OFF)
-option(QGC_VIEWER3D "Enable 3D Viewer (requires Qt Quick 3D)" ON)
+option(QGC_ENABLE_BZIP2 "Enable BZip2 decompression support" OFF)
+option(QGC_ENABLE_LZ4 "Enable LZ4 decompression support" OFF)
 
 # MAVLink Inspector is disabled by default due to GPL licensing of QtCharts
 # option(QGC_DISABLE_MAVLINK_INSPECTOR "Disable MAVLink Inspector" OFF)
@@ -48,7 +71,6 @@ option(QGC_VIEWER3D "Enable 3D Viewer (requires Qt Quick 3D)" ON)
 
 option(QGC_ENABLE_BLUETOOTH "Enable Bluetooth communication links" ON)
 option(QGC_ZEROCONF_ENABLED "Enable ZeroConf/Bonjour discovery" OFF)
-option(QGC_AIRLINK_DISABLED "Disable AIRLink support" ON)
 option(QGC_NO_SERIAL_LINK "Disable serial port communication" OFF)
 
 # ============================================================================
@@ -61,18 +83,13 @@ cmake_dependent_option(QGC_CUSTOM_GST_PACKAGE "Use QGC-provided GStreamer packag
 option(QGC_ENABLE_QT_VIDEOSTREAMING "Enable QtMultimedia video backend" OFF)
 
 # ============================================================================
-# Joystick/Input Configuration
-# ============================================================================
-
-# Example custom SDL game controller mapping:
-# set(SDL_GAMECONTROLLERCONFIG "0300000009120000544f000011010000,OpenTX Radiomaster TX16S,leftx:a3,lefty:a2,rightx:a0,righty:a1,platform:Linux" CACHE STRING "Custom SDL mappings")
-
-# ============================================================================
 # MAVLink Configuration
 # ============================================================================
 
-set(QGC_MAVLINK_GIT_REPO "https://github.com/mavlink/c_library_v2.git" CACHE STRING "MAVLink repository URL")
-set(QGC_MAVLINK_GIT_TAG "a9a10b52a6c87e54676fea22d2936c1b8b733f99" CACHE STRING "MAVLink repository commit/tag")
+set(QGC_MAVLINK_GIT_REPO "https://github.com/mavlink/mavlink.git" CACHE STRING "MAVLink repository URL")
+set(QGC_MAVLINK_GIT_TAG "b1fb5a1a32c41c6e46fea70600d626a0b5a8edbe" CACHE STRING "MAVLink repository commit/tag")
+set(QGC_MAVLINK_DIALECT "all" CACHE STRING "MAVLink dialect")
+set(QGC_MAVLINK_VERSION "2.0" CACHE STRING "MAVLink protocol version")
 
 # ============================================================================
 # Autopilot Plugin Configuration
@@ -94,9 +111,9 @@ option(QGC_DISABLE_PX4_PLUGIN_FACTORY "Disable PX4 plugin factory" OFF)
 # ----------------------------------------------------------------------------
 # Android Platform
 # ----------------------------------------------------------------------------
-set(QGC_QT_ANDROID_COMPILE_SDK_VERSION "35" CACHE STRING "Android compile SDK version")
-set(QGC_QT_ANDROID_TARGET_SDK_VERSION "35" CACHE STRING "Android target SDK version")
-set(QGC_QT_ANDROID_MIN_SDK_VERSION "28" CACHE STRING "Android minimum SDK version")
+set(QGC_QT_ANDROID_COMPILE_SDK_VERSION "${QGC_CONFIG_ANDROID_PLATFORM}" CACHE STRING "Android compile SDK version")
+set(QGC_QT_ANDROID_TARGET_SDK_VERSION "${QGC_CONFIG_ANDROID_PLATFORM}" CACHE STRING "Android target SDK version")
+set(QGC_QT_ANDROID_MIN_SDK_VERSION "${QGC_CONFIG_ANDROID_MIN_SDK}" CACHE STRING "Android minimum SDK version")
 set(QGC_ANDROID_PACKAGE_NAME "${QGC_PACKAGE_NAME}" CACHE STRING "Android package identifier")
 set(QGC_ANDROID_PACKAGE_SOURCE_DIR "${CMAKE_SOURCE_DIR}/android" CACHE PATH "Android package source directory")
 set(QT_ANDROID_DEPLOYMENT_TYPE "" CACHE STRING "Android deployment type (empty or Release)")
@@ -112,6 +129,12 @@ set(QGC_MACOS_BUNDLE_ID "${QGC_PACKAGE_NAME}" CACHE STRING "macOS bundle identif
 set(QGC_MACOS_ICON_PATH "${CMAKE_SOURCE_DIR}/deploy/macos/qgroundcontrol.icns" CACHE FILEPATH "macOS application icon path")
 set(QGC_MACOS_ENTITLEMENTS_PATH "${CMAKE_SOURCE_DIR}/deploy/macos/qgroundcontrol.entitlements" CACHE FILEPATH "macOS entitlements file path")
 option(QGC_MACOS_UNIVERSAL_BUILD "Build macOS universal binary (x86_64h + arm64)" ON)
+
+# ----------------------------------------------------------------------------
+# iOS Platform
+# ----------------------------------------------------------------------------
+set(QGC_IOS_DEPLOYMENT_TARGET "${QGC_CONFIG_IOS_DEPLOYMENT_TARGET}" CACHE STRING "iOS minimum deployment target")
+set(QGC_IOS_TARGETED_DEVICE_FAMILY "1,2" CACHE STRING "iOS targeted device family (1=iPhone, 2=iPad)")
 
 # ----------------------------------------------------------------------------
 # Linux Platform
@@ -135,8 +158,8 @@ set(QGC_WINDOWS_RESOURCE_FILE_PATH "${CMAKE_SOURCE_DIR}/deploy/windows/QGroundCo
 # Qt Configuration
 # ============================================================================
 
-set(QGC_QT_MINIMUM_VERSION "6.10.0" CACHE STRING "Minimum supported Qt version")
-set(QGC_QT_MAXIMUM_VERSION "6.10.0" CACHE STRING "Maximum supported Qt version")
+set(QGC_QT_MINIMUM_VERSION "${QGC_CONFIG_QT_MINIMUM_VERSION}" CACHE STRING "Minimum supported Qt version")
+set(QGC_QT_MAXIMUM_VERSION "${QGC_CONFIG_QT_VERSION}" CACHE STRING "Maximum supported Qt version")
 
 set(QT_QML_OUTPUT_DIRECTORY "${CMAKE_BINARY_DIR}/qml" CACHE PATH "QML output directory")
 set(QML_IMPORT_PATH "${QT_QML_OUTPUT_DIRECTORY}" CACHE STRING "Additional QML import paths")
@@ -145,6 +168,10 @@ option(QT_SILENCE_MISSING_DEPENDENCY_TARGET_WARNING "Silence missing dependency 
 option(QT_ENABLE_VERBOSE_DEPLOYMENT "Enable verbose deployment output" OFF)
 option(QT_DEBUG_FIND_PACKAGE "Print search paths when package not found" ON)
 option(QT_QML_GENERATE_QMLLS_INI "Generate qmlls.ini for QML language server" ON)
+option(QGC_ENABLE_QMLLINT "Enable automatic QML linting during build" OFF)
+
+set(QGC_QT_DISABLE_DEPRECATED_UP_TO "0x061000" CACHE STRING "Disable Qt APIs deprecated before this version")
+set(QGC_QT_ENABLE_STRICT_MODE_UP_TO "0x061000" CACHE STRING "Enable strict Qt API mode up to this version")
 
 # Debug environment variables (uncomment to enable)
 # set(ENV{QT_DEBUG_PLUGINS} "1")

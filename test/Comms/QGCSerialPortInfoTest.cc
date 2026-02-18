@@ -1,16 +1,6 @@
-/****************************************************************************
- *
- * (c) 2009-2020 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "QGCSerialPortInfoTest.h"
-#include "QGCSerialPortInfo.h"
 
-#include <QtTest/QTest>
+#include "QGCSerialPortInfo.h"
 
 void QGCSerialPortInfoTest::_testLoadJsonData()
 {
@@ -22,3 +12,5 @@ void QGCSerialPortInfoTest::_testLoadJsonData()
     QVERIFY(!QGCSerialPortInfo::_boardDescriptionFallbackList.isEmpty());
     QVERIFY(!QGCSerialPortInfo::_boardManufacturerFallbackList.isEmpty());
 }
+
+UT_REGISTER_TEST(QGCSerialPortInfoTest, TestLabel::Unit, TestLabel::Comms)

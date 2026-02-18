@@ -1,19 +1,9 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
 import QGroundControl
 import QGroundControl.Controls
-
 import QGroundControl.FactControls
 
 Item {
@@ -29,7 +19,7 @@ Item {
     property var    gimbals:                    gimbalController.gimbals
     property var    activeGimbal:               gimbalController.activeGimbal
     property var    multiGimbalSetup:           gimbalController.gimbals.count > 1
-    property bool   joystickButtonsAvailable:   activeVehicle.joystickEnabled
+    property bool   joystickButtonsAvailable:   activeVehicle ? joystickManager.joystickEnabledForVehicle(activeVehicle) : false
     property bool   showAzimuth:                QGroundControl.settingsManager.gimbalControllerSettings.toolbarIndicatorShowAzimuth.rawValue
 
     property var    margins:                    ScreenTools.defaultFontPixelWidth
@@ -40,6 +30,15 @@ Item {
     property var    settingsPanelVisible:       false
 
     property var _gimbalControllerSettings: QGroundControl.settingsManager.gimbalControllerSettings
+
+    function _updateJoystickEnabled() {
+        joystickButtonsAvailable = activeVehicle ? joystickManager.joystickEnabledForVehicle(activeVehicle) : false
+    }
+
+    Connections {
+        target: joystickManager
+        function onJoystickEnabledChanged() { _updateJoystickEnabled() }
+    }
 
     QGCPalette { id: qgcPal }
 
@@ -59,7 +58,7 @@ Item {
                 anchors.horizontalCenter: parent.horizontalCenter
                 width:                   height
                 height:                  multiGimbalSetup ? parent.height - gimbalIdLabel.contentHeight : parent.height
-                source:                  "/gimbal/payload.png"
+                source:                  "/res/CameraGimbal.png"
                 fillMode:                Image.PreserveAspectFit
                 sourceSize.height:       height
                 color:                   qgcPal.windowTransparentText
@@ -87,7 +86,7 @@ Item {
             QGCLabel {
                 id:                     statusLabel
                 font.pointSize:         ScreenTools.smallFontPointSize
-                text:                   activeGimbal && activeGimbal.retracted ? 
+                text:                   activeGimbal && activeGimbal.retracted ?
                                             qsTr("Retracted") :
                                             (activeGimbal && activeGimbal.yawLock ? qsTr("Yaw locked") : qsTr("Yaw follow"))
                 color:                  qgcPal.windowTransparentText
@@ -97,7 +96,7 @@ Item {
             QGCLabel {
                 id:             pitchLabel
                 font.pointSize: ScreenTools.smallFontPointSize
-                text:           activeGimbal ? qsTr("P: ") + activeGimbal.absolutePitch.rawValue.toFixed(1) : ""
+                text:           activeGimbal ? qsTr("P: ") + activeGimbal.absolutePitch.valueString : ""
                 color:          qgcPal.windowTransparentText
             }
             QGCLabel {
@@ -105,8 +104,8 @@ Item {
                 font.pointSize: ScreenTools.smallFontPointSize
                 text:           activeGimbal ?
                                     (showAzimuth ?
-                                        (qsTr("Az: ") + activeGimbal.absoluteYaw.rawValue.toFixed(1)) :
-                                        (qsTr("Y: ") + activeGimbal.bodyYaw.rawValue.toFixed(1))) :
+                                        (qsTr("Az: ") + activeGimbal.absoluteYaw.valueString) :
+                                        (qsTr("Y: ") + activeGimbal.bodyYaw.valueString)) :
                                     ""
                 color:          qgcPal.windowTransparentText
             }
@@ -274,6 +273,22 @@ Item {
             }
 
             SettingsGroupLayout {
+                heading:        qsTr("Zoom speed")
+                showDividers:   false
+
+                LabelledFactTextField {
+                    label:      qsTr("Max speed (min zoom)")
+                    fact:       _gimbalControllerSettings.zoomMaxSpeed
+                }
+
+                LabelledFactTextField {
+                    label:      qsTr("Min speed (max zoom)")
+                    fact:       _gimbalControllerSettings.zoomMinSpeed
+                }
+
+            }
+
+            SettingsGroupLayout {
                 LabelledFactTextField {
                     label:      qsTr("Joystick buttons speed:")
                     fact:       _gimbalControllerSettings.joystickButtonsSpeed
@@ -308,7 +323,8 @@ Item {
         function onShowAcquireGimbalControlPopup() {
             if(!acquirePopupConnection.isPopupOpen){
                 acquirePopupConnection.isPopupOpen = true;
-                mainWindow.showMessageDialog(
+                QGroundControl.showMessageDialog(
+                    control,
                     "Request Gimbal Control?",
                     "Command not sent. Another user has control of the gimbal.",
                     Dialog.Yes | Dialog.No,

@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "NTRIPSettings.h"
 
 NTRIPSettings::NTRIPSettings(QObject* parent)
@@ -53,13 +44,13 @@ NTRIPSettings::NTRIPSettings(QObject* parent)
     metaData->setShortDescription(tr("RTCM Message Whitelist"));
     metaData->setRawDefaultValue("");
     _nameToMetaDataMap[metaData->name()] = metaData;
-    
+
     metaData = new FactMetaData(FactMetaData::valueTypeBool, this);
     metaData->setName("ntripUseSpartn");
     metaData->setShortDescription(tr("Use SPARTN pipeline"));
     metaData->setRawDefaultValue(false);
-    _nameToMetaDataMap[metaData->name()] = metaData;    
-    
+    _nameToMetaDataMap[metaData->name()] = metaData;
+
     // Force ntripServerConnectEnabled to false at every startup, ignoring saved settings
     // This ensures NTRIP never auto-starts regardless of previous user state
     if (ntripServerConnectEnabled()) {

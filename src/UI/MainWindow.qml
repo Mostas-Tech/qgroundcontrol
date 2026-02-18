@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2020 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -14,20 +5,19 @@ import QtQuick.Layouts
 import QtQuick.Window
 
 import QGroundControl
-
 import QGroundControl.Controls
 import QGroundControl.FactControls
-
-import QGroundControl.FlightDisplay
+import QGroundControl.FlyView
 import QGroundControl.FlightMap
+import QGroundControl.Toolbar
 
 /// @brief Native QML top level window
 /// All properties defined here are visible to all QML pages.
 ApplicationWindow {
-    id:             mainWindow
-    visible:        true
-
-    property bool   _utmspSendActTrigger
+    id:         mainWindow
+    visible:    true
+    // The special casing for android prevents white bars from showing up on the edges of the screen with newer android versions
+    flags:      Qt.Window | (ScreenTools.isAndroid ? Qt.ExpandedClientAreaHint | Qt.NoTitleBarBackgroundHint : 0)
 
     Component.onCompleted: {
         // Start the sequence of first run prompt(s)
@@ -85,7 +75,7 @@ ApplicationWindow {
         readonly property var       guidedControllerFlyView:        flyView.guidedController
 
         // Number of QGCTextField's with validation errors. Used to prevent closing panels with validation errors.
-        property int                validationErrorCount:           0 
+        property int                validationErrorCount:           0
 
         // Property to manage RemoteID quick access to settings page
         property bool               commingFromRIDIndicator:        false
@@ -119,11 +109,13 @@ ApplicationWindow {
     function showPlanView() {
         flyView.visible = false
         planView.visible = true
+        toolDrawer.visible = false
     }
 
     function showFlyView() {
         flyView.visible = true
         planView.visible = false
+        toolDrawer.visible = false
     }
 
     function showTool(toolTitle, toolSource, toolIcon) {
@@ -165,13 +157,22 @@ ApplicationWindow {
     //-------------------------------------------------------------------------
     //-- Global simple message dialog
 
-    function showMessageDialog(dialogTitle, dialogText, buttons = Dialog.Ok, acceptFunction = null, closeFunction = null) {
-        simpleMessageDialogComponent.createObject(mainWindow, { title: dialogTitle, text: dialogText, buttons: buttons, acceptFunction: acceptFunction, closeFunction: closeFunction }).open()
+    function _showMessageDialogWorker(owner, dialogTitle, dialogText, buttons = Dialog.Ok, acceptFunction = null, closeFunction = null) {
+        let dialog = simpleMessageDialogComponent.createObject(owner, { title: dialogTitle, text: dialogText, buttons: buttons, acceptFunction: acceptFunction, closeFunction: closeFunction })
+        dialog.open()
     }
 
     // This variant is only meant to be called by QGCApplication
     function _showMessageDialog(dialogTitle, dialogText) {
-        showMessageDialog(dialogTitle, dialogText)
+        _showMessageDialogWorker(mainWindow, dialogTitle, dialogText)
+    }
+
+    Connections {
+        target: QGroundControl
+
+        function onShowMessageDialogRequested(owner, title, text, buttons, acceptFunction, closeFunction) {
+            _showMessageDialogWorker(owner, title, text, buttons, acceptFunction, closeFunction)
+        }
     }
 
     Component {
@@ -217,7 +218,7 @@ ApplicationWindow {
 
     function checkForUnsavedMission() {
         if (planView._planMasterController.dirty) {
-            showMessageDialog(closeDialogTitle,
+            QGroundControl.showMessageDialog(mainWindow, closeDialogTitle,
                               qsTr("You have a mission edit in progress which has not been saved/sent. If you close you will lose changes. Are you sure you want to close?"),
                               Dialog.Yes | Dialog.No,
                               function() { _closeChecksToSkip |= _skipUnsavedMissionCheckMask; performCloseChecks() })
@@ -230,7 +231,7 @@ ApplicationWindow {
     function checkForPendingParameterWrites() {
         for (var index=0; index<QGroundControl.multiVehicleManager.vehicles.count; index++) {
             if (QGroundControl.multiVehicleManager.vehicles.get(index).parameterManager.pendingWrites) {
-                mainWindow.showMessageDialog(closeDialogTitle,
+                QGroundControl.showMessageDialog(mainWindow, closeDialogTitle,
                     qsTr("You have pending parameter updates to a vehicle. If you close you will lose changes. Are you sure you want to close?"),
                     Dialog.Yes | Dialog.No,
                     function() { _closeChecksToSkip |= _skipPendingParameterWritesCheckMask; performCloseChecks() })
@@ -242,7 +243,7 @@ ApplicationWindow {
 
     function checkForActiveConnections() {
         if (QGroundControl.multiVehicleManager.activeVehicle) {
-            mainWindow.showMessageDialog(closeDialogTitle,
+            QGroundControl.showMessageDialog(mainWindow, closeDialogTitle,
                 qsTr("There are still active connections to vehicles. Are you sure you want to exit?"),
                 Dialog.Yes | Dialog.No,
                 function() { _closeChecksToSkip |= _skipActiveConnectionsCheckMask; performCloseChecks() })
@@ -264,7 +265,7 @@ ApplicationWindow {
         color:          QGroundControl.globalPalette.window
     }
 
-    FlyView { 
+    FlyView {
         id:                     flyView
         anchors.fill:           parent
     }
@@ -501,24 +502,18 @@ ApplicationWindow {
                 anchors.bottom:     parent.bottom
                 spacing:            ScreenTools.defaultFontPixelWidth
 
-                QGCLabel {
-                    font.pointSize: ScreenTools.largeFontPointSize
-                    text:           "<"
+                QGCToolBarButton {
+                    id: qgcButton
+                    height: parent.height
+                    icon.source: "/res/QGCLogoFull.svg"
+                    logo: true
+                    onClicked: mainWindow.showToolSelectDialog()
                 }
 
                 QGCLabel {
                     id:             toolbarDrawerText
-                    text:           qsTr("Exit") + " " + toolDrawer.toolTitle
+                    text:           toolDrawer.toolTitle
                     font.pointSize: ScreenTools.largeFontPointSize
-                }
-            }
-
-            QGCMouseArea {
-                anchors.fill: toolDrawerToolbarLayout
-                onClicked: {
-                    if (mainWindow.allowViewSwitch()) {
-                        toolDrawer.visible = false
-                    }
                 }
             }
         }
@@ -712,13 +707,13 @@ ApplicationWindow {
                 radius:                     width / 2
                 color:                      QGroundControl.globalPalette.button
                 border.color:               QGroundControl.globalPalette.buttonText
-                visible:                    indicatorDrawerLoader.item && indicatorDrawerLoader.item.showExpand && !indicatorDrawer._expanded
+                visible:                    indicatorDrawerLoader.item && indicatorDrawerLoader.item._showExpand && !indicatorDrawer._expanded
 
                 QGCLabel {
                     anchors.centerIn:   parent
                     text:               ">"
                     color:              QGroundControl.globalPalette.buttonText
-                }  
+                }
 
                 QGCMouseArea {
                     fillItem: parent

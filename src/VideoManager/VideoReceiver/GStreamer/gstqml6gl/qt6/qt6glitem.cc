@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 /*
  * GStreamer
  * Copyright (C) 2015 Matthew Waters <matthew@centricular.com>
@@ -761,4 +752,3 @@ Qt6GLVideoItemInterface::invalidateRef()
   QMutexLocker locker(&lock);
   qt_item = NULL;
 }
-

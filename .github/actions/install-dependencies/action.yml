@@ -1,0 +1,83 @@
+name: Install Dependencies
+description: Install platform-specific build dependencies (GStreamer, etc.)
+
+inputs:
+  gstreamer:
+    description: 'Install GStreamer (Windows x64 only)'
+    required: false
+    default: 'true'
+  gstreamer-version:
+    description: 'GStreamer version (default: from build-config.json)'
+    required: false
+    default: ''
+  vulkan:
+    description: 'Install Vulkan SDK (Windows only, for validation layers)'
+    required: false
+    default: 'false'
+  extra-packages:
+    description: 'Additional packages to install (space-separated, Linux only)'
+    required: false
+    default: ''
+
+runs:
+  using: composite
+  steps:
+    - name: Install dependencies (Windows)
+      if: runner.os == 'Windows'
+      uses: nick-fields/retry@v3
+      env:
+        INPUT_GSTREAMER: ${{ inputs.gstreamer }}
+        INPUT_GSTREAMER_VERSION: ${{ inputs.gstreamer-version }}
+        INPUT_VULKAN: ${{ inputs.vulkan }}
+      with:
+        timeout_minutes: 10
+        max_attempts: 3
+        shell: pwsh
+        command: |
+          $params = @{}
+          if ($env:INPUT_GSTREAMER_VERSION) {
+            $params['GStreamerVersion'] = $env:INPUT_GSTREAMER_VERSION
+          }
+          if ($env:INPUT_GSTREAMER -ne 'true') {
+            $params['SkipGStreamer'] = $true
+          }
+          if ($env:INPUT_VULKAN -eq 'true') {
+            $params['InstallVulkan'] = $true
+          }
+          & ./tools/setup/install-dependencies-windows.ps1 @params
+
+    - name: Install dependencies (Linux)
+      if: runner.os == 'Linux'
+      uses: nick-fields/retry@v3
+      with:
+        timeout_minutes: 10
+        max_attempts: 3
+        command: |
+          sudo python3 tools/setup/install_dependencies.py --platform debian
+
+    - name: Install extra packages (Linux)
+      if: runner.os == 'Linux' && inputs.extra-packages != ''
+      uses: nick-fields/retry@v3
+      env:
+        EXTRA_PACKAGES: ${{ inputs.extra-packages }}
+      with:
+        timeout_minutes: 5
+        max_attempts: 3
+        command: |
+          for pkg in $EXTRA_PACKAGES; do
+            if [[ ! "$pkg" =~ ^[a-zA-Z0-9][a-zA-Z0-9.+-]*$ ]]; then
+              echo "Error: Invalid package name '$pkg'" >&2
+              exit 1
+            fi
+          done
+          # shellcheck disable=SC2086
+          sudo apt-get install -y $EXTRA_PACKAGES
+
+    - name: Install dependencies (macOS)
+      if: runner.os == 'macOS'
+      uses: nick-fields/retry@v3
+      with:
+        timeout_minutes: 10
+        max_attempts: 3
+        command: |
+          python3 tools/setup/install_dependencies.py --platform macos

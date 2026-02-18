@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #pragma once
 
 #include <QtLocation/private/qgeomaptype_p.h>
@@ -60,6 +51,8 @@ public:
 
     virtual int long2tileX(double lon, int z) const;
     virtual int lat2tileY(double lat, int z) const;
+    virtual double tileX2long(int x, int z) const;
+    virtual double tileY2lat(int y, int z) const;
 
     virtual bool isElevationProvider() const { return false; }
     virtual bool isBingProvider() const { return false; }

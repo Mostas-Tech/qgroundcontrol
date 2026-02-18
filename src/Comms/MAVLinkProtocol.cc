@@ -1,29 +1,22 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "MAVLinkProtocol.h"
+#include "AppSettings.h"
 #include "LinkManager.h"
+#include "MavlinkSettings.h"
 #include "MultiVehicleManager.h"
 #include "QGCApplication.h"
+#include "QGCFileHelper.h"
 #include "QGCLoggingCategory.h"
-#include "QGCTemporaryFile.h"
-#include "SettingsManager.h"
-#include "MavlinkSettings.h"
-#include "AppSettings.h"
 #include "QmlObjectListModel.h"
+#include "SettingsManager.h"
 
 #include <QtCore/QApplicationStatic>
 #include <QtCore/QDir>
+#include <QtCore/QFile>
 #include <QtCore/QFileInfo>
 #include <QtCore/QMetaType>
 #include <QtCore/QSettings>
 #include <QtCore/QStandardPaths>
+#include <QtCore/QTimer>
 
 QGC_LOGGING_CATEGORY(MAVLinkProtocolLog, "Comms.MAVLinkProtocol")
 
@@ -31,7 +24,7 @@ Q_APPLICATION_STATIC(MAVLinkProtocol, _mavlinkProtocolInstance);
 
 MAVLinkProtocol::MAVLinkProtocol(QObject *parent)
     : QObject(parent)
-    , _tempLogFile(new QGCTemporaryFile(QStringLiteral("%2.%3").arg(_tempLogFileTemplate, _logFileExtension), this))
+    , _tempLogFile(new QFile(this))
 {
     qCDebug(MAVLinkProtocolLog) << this;
 }
@@ -57,16 +50,6 @@ void MAVLinkProtocol::init()
     (void) connect(MultiVehicleManager::instance(), &MultiVehicleManager::vehicleRemoved, this, &MAVLinkProtocol::_vehicleCountChanged);
 
     _initialized = true;
-}
-
-void MAVLinkProtocol::setVersion(unsigned version)
-{
-    const QList<SharedLinkInterfacePtr> sharedLinks = LinkManager::instance()->links();
-    for (const SharedLinkInterfacePtr &interface : sharedLinks) {
-        mavlink_set_proto_version(interface.get()->mavlinkChannel(), version / 100);
-    }
-
-    _currentVersion = version;
 }
 
 void MAVLinkProtocol::resetMetadataForLink(LinkInterface *link)
@@ -110,7 +93,7 @@ void MAVLinkProtocol::receiveBytes(LinkInterface *link, const QByteArray &data)
         return;
     }
 
-    for (const uint8_t &byte: data) {
+    for (uint8_t byte: data) {
         const uint8_t mavlinkChannel = link->mavlinkChannel();
         mavlink_message_t message{};
         mavlink_status_t status{};
@@ -119,7 +102,14 @@ void MAVLinkProtocol::receiveBytes(LinkInterface *link, const QByteArray &data)
             continue;
         }
 
-        _updateVersion(link, mavlinkChannel);
+        // It's ok to get v1 HEARTBEAT messages on a v2 link:
+        //  PX4 defaults to sending V1 then switches to V2 after receiving a V2 message from GCS
+        //  ArduPilot always sends both versions
+        if (message.msgid != MAVLINK_MSG_ID_HEARTBEAT && (status.flags & MAVLINK_STATUS_FLAG_IN_MAVLINK1)) {
+            link->reportMavlinkV1Traffic();
+            continue;
+        }
+
         _updateCounters(mavlinkChannel, message);
         if (!linkPtr->linkConfiguration()->isForwarding()) {
             _forward(message);
@@ -130,25 +120,6 @@ void MAVLinkProtocol::receiveBytes(LinkInterface *link, const QByteArray &data)
         if (!_updateStatus(link, linkPtr, mavlinkChannel, message)) {
             break;
         }
-    }
-}
-
-void MAVLinkProtocol::_updateVersion(LinkInterface *link, uint8_t mavlinkChannel)
-{
-    if (link->decodedFirstMavlinkPacket()) {
-        return;
-    }
-
-    link->setDecodedFirstMavlinkPacket(true);
-    const mavlink_status_t *const mavlinkStatus = mavlink_get_channel_status(mavlinkChannel);
-
-    if (mavlinkStatus->flags & MAVLINK_STATUS_FLAG_IN_MAVLINK1) {
-        return;
-    }
-
-    if (mavlink_get_proto_version(mavlinkChannel) == 1) {
-        qCDebug(MAVLinkProtocolLog) << "Switching outbound to mavlink 2.0 due to incoming mavlink 2.0 packet:" << mavlinkChannel;
-        setVersion(200);
     }
 }
 
@@ -232,8 +203,8 @@ void MAVLinkProtocol::_logData(LinkInterface *link, const mavlink_message_t &mes
         const qsizetype len = mavlink_msg_to_send_buffer(buf + sizeof(timestamp), &message) + sizeof(timestamp);
         const QByteArray log_data(reinterpret_cast<const char*>(buf), len);
         if (_tempLogFile->write(log_data) != len) {
-            const QString message = QStringLiteral("MAVLink Logging failed. Could not write to file %1, logging disabled.").arg(_tempLogFile->fileName());
-            qgcApp()->showAppMessage(message, getName());
+            const QString logErrorMessage = QStringLiteral("MAVLink Logging failed. Could not write to file %1, logging disabled.").arg(_tempLogFile->fileName());
+            qgcApp()->showAppMessage(logErrorMessage, getName());
             _stopLogging();
             _logSuspendError = true;
         }
@@ -330,8 +301,20 @@ void MAVLinkProtocol::_startLogging()
         return;
     }
 
-    if (!_tempLogFile->open()) {
-        const QString message = QStringLiteral("Opening Flight Data file for writing failed. Unable to write to %1. Please choose a different file location.").arg(_tempLogFile->fileName());
+    // Generate unique temp file path for this logging session
+    const QString logPath = QGCFileHelper::uniqueTempPath(
+        QStringLiteral("%1.%2").arg(_tempLogFileTemplate, _logFileExtension));
+    if (logPath.isEmpty()) {
+        qCWarning(MAVLinkProtocolLog) << "Failed to generate temp log path";
+        _logSuspendError = true;
+        return;
+    }
+
+    _tempLogFile->setFileName(logPath);
+    if (!_tempLogFile->open(QIODevice::WriteOnly)) {
+        const QString message = QStringLiteral("Opening Flight Data file for writing failed. "
+            "Unable to write to %1. Please choose a different file location.")
+            .arg(_tempLogFile->fileName());
         qgcApp()->showAppMessage(message, getName());
         _closeLogFile();
         _logSuspendError = true;

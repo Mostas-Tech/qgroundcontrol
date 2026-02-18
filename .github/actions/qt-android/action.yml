@@ -9,8 +9,10 @@ inputs:
     required: true
   version:
     description: Qt Version
-    required: false
-    default: 6.10.0
+    required: true
+  modules:
+    description: Qt Modules
+    required: true
   abis:
     description: ABIs to Build
     required: false
@@ -18,14 +20,42 @@ inputs:
   cpm-modules:
     description: CPM Cache Path
     required: false
+  build-type:
+    description: Build Type (Debug or Release)
+    required: false
+    default: Release
+  ndk-full-version:
+    description: Android NDK full version (use build-config.outputs.ndk_full_version)
+    required: false
+    default: '27.2.12479018'
+  java-version:
+    description: Java version (use build-config.outputs.java_version)
+    required: false
+    default: '17'
+  android-platform:
+    description: Android platform/API level (use build-config.outputs.android_platform)
+    required: false
+    default: '35'
+  android-cmdline-tools:
+    description: Android cmdline-tools version (use build-config.outputs.android_cmdline_tools)
+    required: false
+    default: '13114758'
+  android-build-tools:
+    description: Android build-tools version (use build-config.outputs.android_build_tools)
+    required: false
+    default: '35.0.0'
+  save-cache:
+    description: Save cache (set to false for PR builds)
+    required: false
+    default: 'true'
 runs:
   using: composite
   steps:
     - name: Setup Java Environment
-      uses: actions/setup-java@v4
+      uses: actions/setup-java@v5
       with:
         distribution: temurin
-        java-version: 17
+        java-version: ${{ inputs.java-version }}
         cache: gradle
         cache-dependency-path: |
           **/*.gradle*
@@ -35,24 +65,22 @@ runs:
       uses: android-actions/setup-android@v3
       id: setup-android
       with:
-        cmdline-tools-version: 13114758
-        packages: 'platform-tools platforms;android-35 build-tools;35.0.0' # ndk;27.2.12479018'
+        cmdline-tools-version: ${{ inputs.android-cmdline-tools }}
+        packages: 'platform-tools platforms;android-${{ inputs.android-platform }} build-tools;${{ inputs.android-build-tools }} ndk;${{ inputs.ndk-full-version }}'
         log-accepted-android-sdk-licenses: false
-
-    - name: Install Android NDK
-      uses: nttld/setup-ndk@v1
-      id: setup-ndk
-      with:
-        ndk-version: r27c
-        add-to-path: false
-        local-cache: true
 
     - name: Update Android SDK / NDK / Tools
       shell: bash
       run: |
-        echo "ANDROID_NDK_ROOT=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
-        echo "ANDROID_NDK_HOME=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
-        echo "ANDROID_NDK=${{ steps.setup-ndk.outputs.ndk-path }}" >> "$GITHUB_ENV"
+        ANDROID_SDK_ROOT_UNIX="${ANDROID_SDK_ROOT//\\//}"
+        NDK_PATH="${ANDROID_SDK_ROOT_UNIX}/ndk/${{ inputs.ndk-full-version }}"
+        if [[ ! -d "$NDK_PATH" ]]; then
+          echo "::error::NDK path not found: $NDK_PATH"
+          exit 1
+        fi
+        echo "ANDROID_NDK_ROOT=${NDK_PATH}" >> "$GITHUB_ENV"
+        echo "ANDROID_NDK_HOME=${NDK_PATH}" >> "$GITHUB_ENV"
+        echo "ANDROID_NDK=${NDK_PATH}" >> "$GITHUB_ENV"
         if [[ "$RUNNER_OS" == "Windows" ]]; then
           "${ANDROID_SDK_ROOT}"/cmdline-tools/latest/bin/sdkmanager.bat --update
           "${GITHUB_WORKSPACE}"/android/gradlew.bat --version
@@ -66,8 +94,9 @@ runs:
       with:
         host: ${{ inputs.host }}
         target: android
-        build-type: ${{ matrix.BuildType }}
+        build-type: ${{ inputs.build-type }}
         cpm-modules: ${{ inputs.cpm-modules }}
+        save-cache: ${{ inputs.save-cache }}
 
     - name: Install Qt for ${{ runner.os }}
       uses: jurplel/install-qt-action@v4
@@ -77,12 +106,12 @@ runs:
         target: desktop
         arch: ${{ inputs.arch }}
         dir: ${{ runner.temp }}
-        modules: qtcharts qtlocation qtpositioning qtspeech qt5compat qtmultimedia qtserialport qtimageformats qtshadertools qtconnectivity qtquick3d qtsensors
+        modules: ${{ inputs.modules }}
         setup-python: false
         cache: true
 
     - name: Install Qt for Android (arm64_v8a)
-      if: contains( inputs.abis, 'arm64-v8a')
+      if: contains(inputs.abis, 'arm64-v8a')
       uses: jurplel/install-qt-action@v4
       with:
         version: ${{ inputs.version }}
@@ -90,12 +119,12 @@ runs:
         target: android
         arch: android_arm64_v8a
         dir: ${{ runner.temp }}
-        modules: qtcharts qtlocation qtpositioning qtspeech qt5compat qtmultimedia qtserialport qtimageformats qtshadertools qtconnectivity qtquick3d qtsensors
+        modules: ${{ inputs.modules }}
         setup-python: false
         cache: true
 
     - name: Install Qt for Android (armv7)
-      if: contains( inputs.abis, 'armeabi-v7a')
+      if: contains(inputs.abis, 'armeabi-v7a')
       uses: jurplel/install-qt-action@v4
       with:
         version: ${{ inputs.version }}
@@ -103,12 +132,12 @@ runs:
         target: android
         arch: android_armv7
         dir: ${{ runner.temp }}
-        modules: qtcharts qtlocation qtpositioning qtspeech qt5compat qtmultimedia qtserialport qtimageformats qtshadertools qtconnectivity qtquick3d qtsensors
+        modules: ${{ inputs.modules }}
         setup-python: false
         cache: true
 
     - name: Install Qt for Android (x86_64)
-      if: contains( inputs.abis, 'x86_64')
+      if: contains(inputs.abis, 'x86_64')
       uses: jurplel/install-qt-action@v4
       with:
         version: ${{ inputs.version }}
@@ -116,12 +145,12 @@ runs:
         target: android
         arch: android_x86_64
         dir: ${{ runner.temp }}
-        modules: qtcharts qtlocation qtpositioning qtspeech qt5compat qtmultimedia qtserialport qtimageformats qtshadertools qtconnectivity qtquick3d qtsensors
+        modules: ${{ inputs.modules }}
         setup-python: false
         cache: true
 
     - name: Install Qt for Android (x86)
-      if: contains( inputs.abis, 'x86')
+      if: contains(inputs.abis, 'x86')
       uses: jurplel/install-qt-action@v4
       with:
         version: ${{ inputs.version }}
@@ -129,6 +158,6 @@ runs:
         target: android
         arch: android_x86
         dir: ${{ runner.temp }}
-        modules: qtcharts qtlocation qtpositioning qtspeech qt5compat qtmultimedia qtserialport qtimageformats qtshadertools qtconnectivity qtquick3d qtsensors
+        modules: ${{ inputs.modules }}
         setup-python: false
         cache: true

@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2020 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "GPSRtk.h"
 #include "GPSProvider.h"
 #include "GPSRTKFactGroup.h"
@@ -152,7 +143,7 @@ void GPSRtk::_satelliteInfoUpdate(const satellite_info_s &msg)
     _gpsRtkFactGroup->numSatellites()->setRawValue(msg.count);
 }
 
-void GPSRtk::_sensorGnssRelativeUpdate(const sensor_gnss_relative_s &msg)
+void GPSRtk::_sensorGnssRelativeUpdate(const sensor_gnss_relative_s &/*msg*/)
 {
     qCDebug(GPSRtkLog) << Q_FUNC_INFO;
 }

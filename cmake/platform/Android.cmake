@@ -9,10 +9,14 @@ endif()
 # ----------------------------------------------------------------------------
 # Android NDK Version Validation
 # ----------------------------------------------------------------------------
-if(Qt6_VERSION VERSION_EQUAL "6.10.0")
-    if(NOT CMAKE_ANDROID_NDK_VERSION VERSION_EQUAL "27.2")
-        message(FATAL_ERROR "QGC: Invalid NDK Version: ${CMAKE_ANDROID_NDK_VERSION}. Qt 6.10.0 requires NDK 27.2")
+# CMAKE_ANDROID_NDK_VERSION format varies: "27.2" or "27.2.12829759"
+# Extract major.minor from ndk_full_version for reliable comparison
+if(DEFINED QGC_CONFIG_NDK_FULL_VERSION AND Qt6_VERSION VERSION_GREATER_EQUAL "${QGC_CONFIG_QT_MINIMUM_VERSION}")
+    string(REGEX MATCH "^([0-9]+\\.[0-9]+)" _ndk_major_minor "${QGC_CONFIG_NDK_FULL_VERSION}")
+    if(_ndk_major_minor AND NOT CMAKE_ANDROID_NDK_VERSION VERSION_GREATER_EQUAL "${_ndk_major_minor}")
+        message(FATAL_ERROR "QGC: NDK ${CMAKE_ANDROID_NDK_VERSION} is too old. Qt ${Qt6_VERSION} requires NDK ${_ndk_major_minor}+ (${QGC_CONFIG_NDK_VERSION})")
     endif()
+    unset(_ndk_major_minor)
 endif()
 
 # ----------------------------------------------------------------------------
@@ -87,7 +91,8 @@ list(APPEND QT_ANDROID_MULTI_ABI_FORWARD_VARS QGC_STABLE_BUILD QT_HOST_PATH)
 # ----------------------------------------------------------------------------
 CPMAddPackage(
     NAME android_openssl
-    URL https://github.com/KDAB/android_openssl/archive/refs/heads/master.zip
+    GITHUB_REPOSITORY KDAB/android_openssl
+    GIT_TAG b71f1470962019bd89534a2919f5925f93bc5779
 )
 
 if(android_openssl_ADDED)
@@ -244,6 +249,8 @@ qt_add_android_permission(${CMAKE_PROJECT_NAME}
 # Needed for read/write to SD Card Path in AppSettings
 qt_add_android_permission(${CMAKE_PROJECT_NAME}
     NAME android.permission.WRITE_EXTERNAL_STORAGE
+    ATTRIBUTES
+        maxSdkVersion 32
 )
 qt_add_android_permission(${CMAKE_PROJECT_NAME}
     NAME android.permission.READ_EXTERNAL_STORAGE
@@ -252,6 +259,11 @@ qt_add_android_permission(${CMAKE_PROJECT_NAME}
 )
 qt_add_android_permission(${CMAKE_PROJECT_NAME}
     NAME android.permission.MANAGE_EXTERNAL_STORAGE
+)
+
+# Joystick
+qt_add_android_permission(${CMAKE_PROJECT_NAME}
+    NAME android.permission.VIBRATE
 )
 
 message(STATUS "QGC: Android platform configuration applied")

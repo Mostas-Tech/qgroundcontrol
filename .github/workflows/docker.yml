@@ -1,0 +1,192 @@
+name: Docker
+
+on:
+  push:
+    branches:
+      - master
+      - 'Stable*'
+    tags:
+      - 'v*'
+    paths-ignore:
+      - 'docs/**'
+  pull_request:
+    paths-ignore:
+      - 'docs/**'
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/master' }}
+
+permissions:
+  contents: read
+  security-events: write
+
+jobs:
+  changes:
+    name: Detect Changes
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
+    outputs:
+      linux: ${{ steps.filter.outputs.linux }}
+      android: ${{ steps.filter.outputs.android }}
+      shared: ${{ steps.filter.outputs.shared }}
+    steps:
+      - name: Detect changed paths
+        uses: dorny/paths-filter@v3
+        id: filter
+        with:
+          filters: |
+            shared:
+              - 'src/**'
+              - 'cmake/**'
+              - 'CMakeLists.txt'
+              - 'tools/setup/**'
+              - '.github/workflows/docker.yml'
+              - '.github/actions/docker/**'
+              - '.github/build-config.json'
+            linux:
+              - 'deploy/linux/**'
+              - 'deploy/docker/Dockerfile-build-ubuntu'
+            android:
+              - 'android/**'
+              - 'deploy/android/**'
+              - 'deploy/docker/Dockerfile-build-android'
+
+  build:
+    name: Docker ${{ matrix.platform }}
+    runs-on: ubuntu-latest
+    needs: changes
+    if: always() && !cancelled()
+    timeout-minutes: 120
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: Linux
+            dockerfile: Dockerfile-build-ubuntu
+            fuse: true
+            artifact_pattern: "*.AppImage"
+
+          - platform: Android
+            dockerfile: Dockerfile-build-android
+            fuse: false
+            artifact_pattern: "*.apk"
+
+    defaults:
+      run:
+        shell: bash
+
+    steps:
+      - name: Check if build needed
+        id: check
+        run: |
+          if [[ "${{ github.event_name }}" != "pull_request" ]]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "Not a PR - building all platforms"
+            exit 0
+          fi
+
+          SHARED="${{ needs.changes.outputs.shared }}"
+          LINUX="${{ needs.changes.outputs.linux }}"
+          ANDROID="${{ needs.changes.outputs.android }}"
+          PLATFORM="${{ matrix.platform }}"
+
+          if [[ "$SHARED" == "true" ]]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "Shared files changed - building $PLATFORM"
+          elif [[ "$PLATFORM" == "Linux" && "$LINUX" == "true" ]]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "Linux-specific files changed - building Linux"
+          elif [[ "$PLATFORM" == "Android" && "$ANDROID" == "true" ]]; then
+            echo "should_build=true" >> $GITHUB_OUTPUT
+            echo "Android-specific files changed - building Android"
+          else
+            echo "should_build=false" >> $GITHUB_OUTPUT
+            echo "No relevant changes for $PLATFORM - skipping"
+          fi
+
+      - name: Harden Runner
+        if: steps.check.outputs.should_build == 'true'
+        uses: step-security/harden-runner@v2
+        with:
+          egress-policy: audit
+
+      - name: Free Disk Space
+        if: steps.check.outputs.should_build == 'true'
+        uses: jlumbroso/free-disk-space@v1.3.1
+        with:
+          tool-cache: true
+          android: ${{ matrix.platform != 'Android' }}
+          dotnet: true
+          haskell: true
+          large-packages: false  # Slowest option (~5min) - disabled for faster builds
+          docker-images: true
+          swap-storage: true
+
+      - name: Checkout
+        if: steps.check.outputs.should_build == 'true'
+        uses: actions/checkout@v6
+        with:
+          submodules: recursive
+          fetch-depth: 1
+          fetch-tags: true
+
+      - name: Build with Docker
+        if: steps.check.outputs.should_build == 'true'
+        uses: ./.github/actions/docker
+        with:
+          dockerfile: ${{ matrix.dockerfile }}
+          fuse: ${{ matrix.fuse }}
+          docker-token: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Find build artifact
+        if: steps.check.outputs.should_build == 'true'
+        id: artifact
+        run: |
+          set +o pipefail  # Disable pipefail to handle find | head gracefully
+          BUILD_DIR="${{ github.workspace }}/build"
+          echo "Searching for ${{ matrix.artifact_pattern }} in ${BUILD_DIR}"
+
+          # Check if build directory exists
+          if [ ! -d "${BUILD_DIR}" ]; then
+            echo "::warning::Build directory does not exist: ${BUILD_DIR}"
+            echo "found=false" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          # Show build directory structure for debugging (ignore permission errors from Docker-created dirs)
+          echo "Build directory contents:"
+          find "${BUILD_DIR}" -maxdepth 4 \( -name "*.apk" -o -name "*.AppImage" \) -type f 2>/dev/null || true
+
+          # Find the produced artifact (APK or AppImage)
+          # Use -quit for efficiency and to avoid broken pipe with head
+          ARTIFACT=$(find "${BUILD_DIR}" -name "${{ matrix.artifact_pattern }}" -type f -print -quit 2>/dev/null)
+          if [ -z "$ARTIFACT" ]; then
+            echo "::warning::No artifact matching ${{ matrix.artifact_pattern }} found"
+            echo "found=false" >> $GITHUB_OUTPUT
+          else
+            echo "Found artifact: $ARTIFACT"
+            echo "path=$ARTIFACT" >> $GITHUB_OUTPUT
+            echo "found=true" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Scan artifact for vulnerabilities
+        if: steps.artifact.outputs.found == 'true'
+        uses: aquasecurity/trivy-action@0.33.1
+        with:
+          scan-type: 'fs'
+          scan-ref: ${{ steps.artifact.outputs.path }}
+          format: 'sarif'
+          output: 'trivy-results.sarif'
+          trivy-config: '.github/trivy.yaml'
+          cache-dir: ${{ runner.temp }}/.cache/trivy
+
+      - name: Upload Trivy results to GitHub Security
+        if: steps.artifact.outputs.found == 'true'
+        uses: github/codeql-action/upload-sarif@v4
+        with:
+          sarif_file: 'trivy-results.sarif'
+          category: 'trivy-${{ matrix.platform }}'

@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "GStreamer.h"
 #include "GStreamerHelpers.h"
 #include "AppSettings.h"
@@ -62,7 +53,7 @@ GST_PLUGIN_STATIC_DECLARE(vulkan);
 GST_PLUGIN_STATIC_DECLARE(qgc);
 G_END_DECLS
 
-namespace
+namespace GStreamer
 {
 
 void _registerPlugins()
@@ -227,7 +218,7 @@ void _setGstEnvVars()
 #endif
 }
 
-void _checkPlugin(gpointer data, gpointer user_data)
+void _logPlugin(gpointer data, gpointer /*user_data*/)
 {
     GstPlugin *plugin = static_cast<GstPlugin*>(data);
     if (!plugin) {
@@ -236,7 +227,7 @@ void _checkPlugin(gpointer data, gpointer user_data)
 
     const gchar *name = gst_plugin_get_name(plugin);
     const gchar *version = gst_plugin_get_version(plugin);
-    qCDebug(GStreamerLog) << QString("Plugin %1: (Version %2)").arg(name, version);
+    qCDebug(GStreamerLog) << "  " << name << "-" << version;
 }
 
 bool _verifyPlugins()
@@ -245,8 +236,9 @@ bool _verifyPlugins()
 
     GstRegistry *registry = gst_registry_get();
 
+    qCDebug(GStreamerLog) << "Installed GStreamer Plugins:";
     GList *plugins = gst_registry_get_plugin_list(registry);
-    g_list_foreach(plugins, _checkPlugin, NULL);
+    g_list_foreach(plugins, _logPlugin, NULL);
     g_list_free(plugins);
 
     static constexpr const char *pluginNames[2] = {"qml6", "qgc"};
@@ -282,7 +274,7 @@ bool _verifyPlugins()
     return result;
 }
 
-void _logDecoderRanks() 
+void _logDecoderRanks()
 {
     GList *decoderFactories = gst_element_factory_list_get_elements(
         static_cast<GstElementFactoryListType>(GST_ELEMENT_FACTORY_TYPE_DECODER | GST_ELEMENT_FACTORY_TYPE_MEDIA_VIDEO),
@@ -342,7 +334,28 @@ void _logDecoderRanks()
     gst_plugin_feature_list_free(decoderFactories);
 }
 
-// Hardware decoder detection is centralized in GStreamer::is_hardware_decoder_factory
+void _lowerSoftwareDecoderRanks(GstRegistry *registry)
+{
+    static constexpr uint16_t NewRank  = GST_RANK_NONE;
+    if (!registry) {
+        qCCritical(GStreamerLog) << "Invalid registry!";
+        return;
+    }
+
+    const char* softDecoders[] = {"avdec_h264", "avdec_h265", "avdec_mjpeg", "avdec_mpeg2video", "avdec_mpeg4",
+                                  "avdec_vp8", "avdec_vp9", "dav1ddec", "vp8dec", "vp9dec"};
+
+    for (const char *name : softDecoders) {
+        GstPluginFeature *feature = gst_registry_lookup_feature(registry, name);
+        if (feature) {
+            qCDebug(GStreamerLog) << "Setting software decoder rank low:" << name << " rank:" << NewRank;
+            gst_plugin_feature_set_rank(feature, NewRank);
+            gst_object_unref(feature);
+        } else {
+            qCDebug(GStreamerLog) << "Software decoder not found:" << name;
+        }
+    }
+}
 
 void _changeFeatureRank(GstRegistry *registry, const char *featureName, uint16_t rank)
 {
@@ -356,9 +369,8 @@ void _changeFeatureRank(GstRegistry *registry, const char *featureName, uint16_t
         return;
     }
 
-    qCDebug(GStreamerLog) << "Changing feature (" << featureName << ") to use rank:" << rank;
+    qCDebug(GStreamerLog) << "  Changing feature (" << featureName << ") to use rank:" << rank;
     gst_plugin_feature_set_rank(feature, rank);
-    (void) gst_registry_add_feature(registry, feature);
     gst_clear_object(&feature);
 }
 
@@ -379,6 +391,8 @@ void _prioritizeByHardwareClass(GstRegistry *registry, uint16_t prioritizedRank,
         return;
     }
 
+    qCDebug(GStreamerLog) << "Prioritizing" << (requireHardware ? "hardware" : "software")
+                           << "video decoders with rank:" << prioritizedRank;
     int matchedFactories = 0;
     for (GList *node = decoderFactories; node != nullptr; node = node->next) {
         GstElementFactory *factory = GST_ELEMENT_FACTORY(node->data);
@@ -402,6 +416,12 @@ void _prioritizeByHardwareClass(GstRegistry *registry, uint16_t prioritizedRank,
     if (matchedFactories == 0) {
         qCWarning(GStreamerLog) << "No" << (requireHardware ? "hardware" : "software")
                                << "video decoder factories found to reprioritize.";
+    }
+
+   // Lower software decoder rank when using hardware decoders
+    if(requireHardware) {
+        qCCritical(GstVideoReceiverLog) << "Set the software decoder rank low.";
+        _lowerSoftwareDecoderRanks(registry);
     }
 
     gst_plugin_feature_list_free(decoderFactories);
@@ -467,11 +487,6 @@ void _setCodecPriorities(GStreamer::VideoDecoderOptions option)
     }
 }
 
-} // namespace
-
-namespace GStreamer
-{
-
 bool initialize()
 {
     _setGstEnvVars();
@@ -483,9 +498,10 @@ bool initialize()
             gstDebugLevel = settings.value(AppSettings::gstDebugLevelName).toInt();
         }
         gst_debug_set_default_threshold(static_cast<GstDebugLevel>(gstDebugLevel));
-        gst_debug_remove_log_function(gst_debug_log_default);
-        gst_debug_add_log_function(_qtGstLog, nullptr, nullptr);
     }
+
+    gst_debug_remove_log_function(gst_debug_log_default);
+    gst_debug_add_log_function(_qtGstLog, nullptr, nullptr);
 
     const QStringList args = QCoreApplication::arguments();
     int gstArgc = args.size();
@@ -533,7 +549,7 @@ bool initialize()
     return true;
 }
 
-void *createVideoSink(QQuickItem *widget, QObject *parent)
+void *createVideoSink(QQuickItem *widget, QObject * /*parent*/)
 {
     GstElement *videoSinkBin = gst_element_factory_make("qgcvideosinkbin", NULL);
     if (videoSinkBin) {

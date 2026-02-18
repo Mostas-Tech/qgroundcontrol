@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #pragma once
 
 #include <QtCore/QLoggingCategory>
@@ -37,8 +28,8 @@ public:
     Q_INVOKABLE void loadParameters(const QString &paramFile);
 
 private slots:
-    void _githubJsonDownloadComplete(const QString &remoteFile, const QString &localFile, const QString &errorMsg);
-    void _paramFileDownloadComplete(const QString &remoteFile, const QString &localFile, const QString &errorMsg);
+    void _githubJsonDownloadComplete(bool success, const QString &localFile, const QString &errorMsg);
+    void _paramFileDownloadComplete(bool success, const QString &localFile, const QString &errorMsg);
 
 private:
     void _fillFrameClasses();

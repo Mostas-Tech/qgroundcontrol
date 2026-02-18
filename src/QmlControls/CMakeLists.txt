@@ -19,6 +19,8 @@ target_sources(${CMAKE_PROJECT_NAME}
         MavlinkAction.h
         MavlinkActionManager.cc
         MavlinkActionManager.h
+        ObjectListModelBase.cc
+        ObjectListModelBase.h
         ParameterEditorController.cc
         ParameterEditorController.h
         QGCFenceCircle.cc
@@ -78,6 +80,7 @@ qt_add_qml_module(QGroundControlControlsModule
     VERSION 1.0
     RESOURCE_PREFIX /qml
     QML_FILES
+        AltModeCombo.qml
         AltModeDialog.qml
         AgriculturalStyleComplexItemEditor.qml
         AppSettings.qml
@@ -149,12 +152,12 @@ qt_add_qml_module(QGroundControlControlsModule
         QGCOptionsComboBox.qml
         QGCPageIndicator.qml
         QGCPopupDialog.qml
+        QGCPopupDialogFactory.qml
         QGCRadioButton.qml
         QGCRoundButton.qml
         QGCSimpleMessageDialog.qml
         QGCSlider.qml
         QGCSwipeView.qml
-        QGCSwitch.qml
         QGCTabBar.qml
         QGCTabButton.qml
         QGCTextField.qml
@@ -205,9 +208,11 @@ qt_add_qml_module(QGroundControlControlsModule
         MissionItemMapVisual.qml
         MissionItemStatus.qml
         MissionSettingsEditor.qml
+        MissionStats.qml
         PlanEditToolbar.qml
         PlanToolBarIndicators.qml
         PlanView.qml
+        PlanViewRightPanel.qml
         RallyPointEditorHeader.qml
         RallyPointItemEditor.qml
         RallyPointMapVisuals.qml

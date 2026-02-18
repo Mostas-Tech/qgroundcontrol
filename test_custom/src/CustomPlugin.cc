@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "CustomPlugin.h"
 #include "QmlComponentInfo.h"
 #include "QGCLoggingCategory.h"
@@ -296,9 +287,8 @@ CustomOverrideInterceptor::CustomOverrideInterceptor()
 QUrl CustomOverrideInterceptor::intercept(const QUrl &url, QQmlAbstractUrlInterceptor::DataType type)
 {
     switch (type) {
-    using DataType = QQmlAbstractUrlInterceptor::DataType;
-    case DataType::QmlFile:
-    case DataType::UrlString:
+    case QQmlAbstractUrlInterceptor::QmlFile:
+    case QQmlAbstractUrlInterceptor::UrlString:
         if (url.scheme() == QStringLiteral("qrc")) {
             const QString origPath = url.path();
             const QString overrideRes = QStringLiteral(":/Custom%1").arg(origPath);

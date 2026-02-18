@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "StructureScanComplexItem.h"
 #include "JsonHelper.h"
 #include "MissionController.h"
@@ -754,4 +745,3 @@ void StructureScanComplexItem::_segmentTerrainCollisionChanged(bool terrainColli
     ComplexMissionItem::_segmentTerrainCollisionChanged(terrainCollision);
     _structurePolygon.setShowAltColor(_cTerrainCollisionSegments != 0);
 }
-

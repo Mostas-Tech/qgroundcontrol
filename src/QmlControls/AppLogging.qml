@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2020 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
@@ -58,7 +49,7 @@ Item {
                 clip:                   true
                 model:                  debugMessageModel
                 delegate:               delegateItem
- 
+
                 function scrollToEnd() {
                     if (listViewLoadCompleted) {
                         if (followTail.checked) {
@@ -143,9 +134,15 @@ Item {
                 anchors.bottom: parent.bottom
                 anchors.right:  parent.right
                 text:           qsTr("Set Logging")
-                onClicked:      filtersDialogComponent.createObject(mainWindow).open()
+                onClicked:      filtersDialogFactory.open()
             }
         }
+    }
+
+    QGCPopupDialogFactory {
+        id: filtersDialogFactory
+
+        dialogComponent: filtersDialogComponent
     }
 
     Component {
@@ -280,4 +277,3 @@ Item {
         }
     }
 }
-

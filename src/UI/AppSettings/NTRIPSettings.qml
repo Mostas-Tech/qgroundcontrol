@@ -1,11 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -18,12 +10,12 @@ SettingsPage {
     property var _settingsManager:   QGroundControl.settingsManager
     property var _ntrip:             _settingsManager.ntripSettings
     property Fact _enabled:          _ntrip.ntripServerConnectEnabled
-    
+
     SettingsGroupLayout {
         Layout.fillWidth:   true
         heading:            qsTr("NTRIP / RTK")
         visible:            _ntrip.visible
-        
+
         FactCheckBoxSlider {
             Layout.fillWidth:   true
             text:               _enabled.shortDescription
@@ -31,7 +23,7 @@ SettingsPage {
             visible:            _enabled.visible
         }
     }
-    
+
     SettingsGroupLayout {
         Layout.fillWidth:   true
         visible:            _ntrip.ntripServerHostAddress.visible || _ntrip.ntripServerPort.visible ||
@@ -39,7 +31,7 @@ SettingsPage {
                             _ntrip.ntripMountpoint.visible || _ntrip.ntripWhitelist.visible ||
                             _ntrip.ntripUseSpartn.visible
         enabled:            _enabled.rawValue
-        
+
         // Status line
         QGCLabel {
             Layout.fillWidth:   true
@@ -66,7 +58,7 @@ SettingsPage {
                 }
             }
         }
-        
+
         LabelledFactTextField {
             Layout.fillWidth:   true
             label:              _ntrip.ntripServerHostAddress.shortDescription
@@ -74,7 +66,7 @@ SettingsPage {
             visible:            _ntrip.ntripServerHostAddress.visible
             textFieldPreferredWidth: ScreenTools.defaultFontPixelWidth * 60
         }
-        
+
         LabelledFactTextField {
             Layout.fillWidth:   true
             label:              _ntrip.ntripServerPort.shortDescription
@@ -82,7 +74,7 @@ SettingsPage {
             visible:            _ntrip.ntripServerPort.visible
             textFieldPreferredWidth: ScreenTools.defaultFontPixelWidth * 20
         }
-        
+
         LabelledFactTextField {
             Layout.fillWidth:   true
             label:              _ntrip.ntripUsername.shortDescription
@@ -90,7 +82,7 @@ SettingsPage {
             visible:            _ntrip.ntripUsername.visible
             textFieldPreferredWidth: ScreenTools.defaultFontPixelWidth * 60
         }
-        
+
         LabelledFactTextField {
             Layout.fillWidth:   true
             label:              _ntrip.ntripPassword.shortDescription
@@ -99,7 +91,7 @@ SettingsPage {
             textField.echoMode: TextInput.Password
             textFieldPreferredWidth: ScreenTools.defaultFontPixelWidth * 60
         }
-        
+
         LabelledFactTextField {
             Layout.fillWidth:   true
             label:              _ntrip.ntripMountpoint.shortDescription
@@ -107,7 +99,7 @@ SettingsPage {
             visible:            _ntrip.ntripMountpoint.visible
             textFieldPreferredWidth: ScreenTools.defaultFontPixelWidth * 40
         }
-        
+
         LabelledFactTextField {
             Layout.fillWidth:   true
             label:              _ntrip.ntripWhitelist.shortDescription
@@ -115,7 +107,7 @@ SettingsPage {
             visible:            _ntrip.ntripWhitelist.visible
             textFieldPreferredWidth: ScreenTools.defaultFontPixelWidth * 40
         }
-        
+
         FactCheckBoxSlider {
             Layout.fillWidth:   true
             text:               _ntrip.ntripUseSpartn.shortDescription

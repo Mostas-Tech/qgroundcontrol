@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "QGCLogging.h"
 #include "AppSettings.h"
 #include "QGCApplication.h"
@@ -26,17 +17,19 @@ static QtMessageHandler defaultHandler = nullptr;
 
 static void msgHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
+    // Call the previous handler FIRST to ensure QTest::ignoreMessage works correctly.
+    // QTest's message filtering happens in the default handler, so we must call it
+    // before any processing that might interfere with message matching.
+    if (defaultHandler) {
+        defaultHandler(type, context, msg);
+    }
+
     // Format the message using Qt's pattern
     const QString message = qFormatLogMessage(type, context, msg);
 
     // Filter out Qt Quick internals
     if (QGCLogging::instance() && !QString(context.category).startsWith("qt.quick")) {
         QGCLogging::instance()->log(message);
-    }
-
-    // Call the previous handler if it exists
-    if (defaultHandler) {
-        defaultHandler(type, context, msg);
     }
 }
 

@@ -104,10 +104,10 @@
     "default":      10
 },
 {
-    "name":         "showJoystickIndicatorInToolbar",
-    "shortDesc":    "Show joystick indicator in toolbar",
+    "name":         "enableAutomaticMissionPopups",
+    "shortDesc":    "Enable automatic mission start/resume popups",
     "type":         "bool",
-    "default":      false
+    "default":      true
 }
 ]
 }

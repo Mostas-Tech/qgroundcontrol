@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "GimbalController.h"
 #include "GimbalControllerSettings.h"
 #include "MAVLinkProtocol.h"
@@ -15,6 +6,9 @@
 #include "QmlObjectListModel.h"
 #include "SettingsManager.h"
 #include "Vehicle.h"
+#include <cmath>
+#include "Gimbal.h"
+#include "QGCCameraManager.h"
 
 QGC_LOGGING_CATEGORY(GimbalControllerLog, "Gimbal.GimbalController")
 
@@ -203,7 +197,7 @@ void GimbalController::_handleGimbalDeviceAttitudeStatus(const mavlink_message_t
 
         // We do a reverse lookup here
         const auto foundGimbal = std::find_if(_potentialGimbals.begin(), _potentialGimbals.end(),
-                     [this, pairId](Gimbal *gimbal) { return (gimbal->deviceId()->rawValue().toUInt() == pairId.deviceId); });
+                     [pairId](Gimbal *gimbal) { return (gimbal->deviceId()->rawValue().toUInt() == pairId.deviceId); });
 
         if (foundGimbal == _potentialGimbals.constEnd()) {
             qCDebug(GimbalControllerLog) << "_handleGimbalDeviceAttitudeStatus for unknown device id:"
@@ -430,7 +424,7 @@ void GimbalController::centerGimbal()
     sendPitchBodyYaw(0.0, 0.0, true);
 }
 
-void GimbalController::gimbalOnScreenControl(float panPct, float tiltPct, bool clickAndPoint, bool clickAndDrag, bool rateControl, bool retract, bool neutral, bool yawlock)
+void GimbalController::gimbalOnScreenControl(float panPct, float tiltPct, bool clickAndPoint, bool clickAndDrag, bool /*rateControl*/, bool /*retract*/, bool /*neutral*/, bool /*yawlock*/)
 {
     // Pan and tilt comes as +-(0-1)
 
@@ -589,6 +583,62 @@ void GimbalController::sendRate()
     } else {
         _rateSenderTimer.start();
     }
+}
+
+void GimbalController::sendGimbalRate(float pitch_rate_deg_s, float yaw_rate_deg_s)
+{
+    if (!_tryGetGimbalControl()) {
+        return;
+    }
+
+    _sendGimbalAttitudeRates(pitch_rate_deg_s, yaw_rate_deg_s);
+
+    if (pitch_rate_deg_s == 0.f && yaw_rate_deg_s == 0.f) {
+        _rateSenderTimer.stop();
+    } else {
+        _rateSenderTimer.start();
+    }
+}
+
+void GimbalController::_sendGimbalAttitudeRates(float pitch_rate_deg_s,
+                                                float yaw_rate_deg_s)
+{
+
+    auto sharedLink = _vehicle->vehicleLinkManager()->primaryLink().lock();
+    if (!sharedLink) {
+        qCDebug(GimbalControllerLog) << "_sendGimbalAttitudeRates: primary link gone!";
+        return;
+    }
+
+    uint32_t flags =
+        GIMBAL_MANAGER_FLAGS_ROLL_LOCK |
+        GIMBAL_MANAGER_FLAGS_PITCH_LOCK |
+        GIMBAL_MANAGER_FLAGS_YAW_IN_VEHICLE_FRAME;   // use vehicle/body frame
+
+    // Preserve current yaw-lock state instead of changing it:
+    if (_activeGimbal->yawLock()) {
+        flags |= GIMBAL_MANAGER_FLAGS_YAW_LOCK;
+    }
+
+    const float qnan[4] = {NAN, NAN, NAN, NAN};
+    mavlink_message_t msg;
+
+    mavlink_msg_gimbal_manager_set_attitude_pack_chan(
+        MAVLinkProtocol::instance()->getSystemId(),
+        MAVLinkProtocol::getComponentId(),
+        sharedLink->mavlinkChannel(),
+        &msg,
+        _vehicle->id(),
+        static_cast<uint8_t>(_activeGimbal->managerCompid()->rawValue().toUInt()),
+        flags,
+        static_cast<uint8_t>(_activeGimbal->deviceId()->rawValue().toUInt()),
+        qnan,
+        NAN,
+        qDegreesToRadians(pitch_rate_deg_s),
+        qDegreesToRadians(yaw_rate_deg_s)
+    );
+
+    _vehicle->sendMessageOnLinkThreadSafe(sharedLink.get(), msg);
 }
 
 void GimbalController::_rateSenderTimeout()

@@ -1,23 +1,14 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #pragma once
 
-#include <atomic>
+#include "LinkConfiguration.h"
+#include "LinkInterface.h"
 
 #include <QtCore/QByteArray>
 #include <QtCore/QLoggingCategory>
 #include <QtCore/QString>
 #include <QtNetwork/QAbstractSocket>
 
-#include "LinkConfiguration.h"
-#include "LinkInterface.h"
+#include <atomic>
 
 class QTcpSocket;
 class QThread;
@@ -125,4 +116,5 @@ private:
     const TCPConfiguration *_tcpConfig = nullptr;
     TCPWorker *_worker = nullptr;
     QThread *_workerThread = nullptr;
+    std::atomic<bool> _disconnectedEmitted{false};
 };

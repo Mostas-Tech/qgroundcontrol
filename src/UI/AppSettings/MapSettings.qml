@@ -1,25 +1,12 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
-
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Dialogs
 import QtQuick.Layouts
 
 import QGroundControl
-
 import QGroundControl.FactControls
 import QGroundControl.Controls
-
 import QGroundControl.QGCMapEngineManager
-
 
 Item {
     id: root
@@ -52,7 +39,7 @@ Item {
 
         Connections {
             target:                 _mapEngineManager
-            function onErrorMessageChanged() { errorDialogComponent.createObject(mainWindow).open() }
+            function onErrorMessageChanged() { errorDialogFactory.open() }
         }
 
         SettingsGroupLayout {
@@ -130,7 +117,7 @@ Item {
                 enabled:    !_currentlyImportOrExporting
                 onClicked: {
                     _mapEngineManager.importAction = QGCMapEngineManager.ImportAction.ActionNone
-                    importDialogComponent.createObject(mainWindow).open()
+                    importDialogFactory.open()
                 }
             }
 
@@ -139,7 +126,7 @@ Item {
                 buttonText: qsTr("Export")
                 visible:    QGroundControl.corePlugin.options.showOfflineMapExport
                 enabled:    !_currentlyImportOrExporting
-                onClicked:  exportDialogComponent.createObject(mainWindow).open()
+                onClicked:  exportDialogFactory.open()
             }
 
             RowLayout {
@@ -187,6 +174,12 @@ Item {
                 textFieldPreferredWidth:    _largeTextFieldWidth
                 label:                      qsTr("VWorld")
                 fact:                       _appSettings.vworldToken
+            }
+
+            LabelledFactTextField {
+                textFieldPreferredWidth:    _largeTextFieldWidth
+                label:                      qsTr("OpenAIP")
+                fact:                       _appSettings.openaipToken
             }
         }
 
@@ -249,6 +242,12 @@ Item {
             }
         }
 
+        QGCPopupDialogFactory {
+            id: exportDialogFactory
+
+            dialogComponent: exportDialogComponent
+        }
+
         Component {
             id: exportDialogComponent
 
@@ -276,6 +275,12 @@ Item {
                     }
                 }
             }
+        }
+
+        QGCPopupDialogFactory {
+            id: importDialogFactory
+
+            dialogComponent: importDialogComponent
         }
 
         Component {
@@ -306,6 +311,12 @@ Item {
                     }
                 }
             }
+        }
+
+        QGCPopupDialogFactory {
+            id: errorDialogFactory
+
+            dialogComponent: errorDialogComponent
         }
 
         Component {

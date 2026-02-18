@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #pragma once
 
 #include <QtCore/QLoggingCategory>
@@ -40,6 +31,7 @@ class VideoSettings;
 class Viewer3DSettings;
 class MavlinkSettings;
 class FactMetaData;
+class JoystickManagerSettings;
 
 Q_DECLARE_LOGGING_CATEGORY(SettingsManagerLog)
 
@@ -73,9 +65,8 @@ class SettingsManager : public QObject
     Q_MOC_INCLUDE("NTRIPSettings.h")
     Q_MOC_INCLUDE("VideoSettings.h")
     Q_MOC_INCLUDE("MavlinkSettings.h")
-#ifdef QGC_VIEWER3D
+    Q_MOC_INCLUDE("JoystickManagerSettings.h")
     Q_MOC_INCLUDE("Viewer3DSettings.h")
-#endif
     Q_PROPERTY(QObject *adsbVehicleManagerSettings      READ adsbVehicleManagerSettings     CONSTANT)
 #ifndef QGC_NO_ARDUPILOT_DIALECT
     Q_PROPERTY(QObject *apmMavlinkStreamRateSettings    READ apmMavlinkStreamRateSettings   CONSTANT)
@@ -101,9 +92,8 @@ class SettingsManager : public QObject
     Q_PROPERTY(QObject *ntripSettings                   READ ntripSettings                  CONSTANT)
     Q_PROPERTY(QObject *videoSettings                   READ videoSettings                  CONSTANT)
     Q_PROPERTY(QObject *mavlinkSettings                 READ mavlinkSettings                CONSTANT)
-#ifdef QGC_VIEWER3D
+    Q_PROPERTY(QObject *joystickManagerSettings         READ joystickManagerSettings        CONSTANT)
     Q_PROPERTY(QObject *viewer3DSettings                READ viewer3DSettings               CONSTANT)
-#endif
 public:
     SettingsManager(QObject *parent = nullptr);
     ~SettingsManager();
@@ -144,9 +134,8 @@ public:
     NTRIPSettings *ntripSettings() const;
     VideoSettings *videoSettings() const;
     MavlinkSettings *mavlinkSettings() const;
-#ifdef QGC_VIEWER3D
+    JoystickManagerSettings *joystickManagerSettings() const;
     Viewer3DSettings *viewer3DSettings() const;
-#endif
 
 private:
     void _loadSettingsFiles();
@@ -175,10 +164,8 @@ private:
     NTRIPSettings *_ntripSettings = nullptr;
     VideoSettings *_videoSettings = nullptr;
     MavlinkSettings *_mavlinkSettings = nullptr;
-#ifdef QGC_VIEWER3D
+    JoystickManagerSettings *_joystickManagerSettings = nullptr;
     Viewer3DSettings *_viewer3DSettings = nullptr;
-#endif
-    AgriBoardDebugSettings *_agriBoardDebugSettings = nullptr;
 
     QMap<QString, QMap<QString, QJsonObject>> _settingsFileOverrides;   // groupName:settingName:metaDataObject
 

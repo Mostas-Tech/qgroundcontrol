@@ -31,6 +31,10 @@ target_sources(${CMAKE_PROJECT_NAME}
         GimbalControllerSettings.h
         IhattysSettings.cc
         IhattysSettings.h
+        JoystickManagerSettings.cc
+        JoystickManagerSettings.h
+        JoystickSettings.cc
+        JoystickSettings.h
         MavlinkSettings.cc
         MavlinkSettings.h
         OfflineMapsSettings.cc
@@ -41,6 +45,8 @@ target_sources(${CMAKE_PROJECT_NAME}
         RemoteIDSettings.h
         RTKSettings.cc
         RTKSettings.h
+        NTRIPSettings.cc
+        NTRIPSettings.h
         NTRIPSettings.cc
         NTRIPSettings.h
         SettingsGroup.cc

@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "APMFirmwarePlugin.h"
 #include "APMAutoPilotPlugin.h"
 #include "QGCMAVLink.h"
@@ -644,7 +635,7 @@ QString APMFirmwarePlugin::getHobbsMeter(Vehicle* vehicle) const
     const QString timeStr = QString::asprintf("%04d:%02d:%02d", hours, minutes, seconds);
     qCDebug(VehicleLog) << "Hobbs Meter string:" << timeStr;
     return timeStr;
-} 
+}
 
 bool APMFirmwarePlugin::hasGripper(const Vehicle *vehicle) const
 {

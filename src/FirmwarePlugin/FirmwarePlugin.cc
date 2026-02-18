@@ -1,13 +1,4 @@
-  /****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
-#include "FirmwarePlugin.h"
+  #include "FirmwarePlugin.h"
 #include "AutoPilotPlugin.h"
 #include "Autotune.h"
 #include "GenericAutoPilotPlugin.h"
@@ -174,7 +165,7 @@ void FirmwarePlugin::guidedModeChangeEquivalentAirspeedMetersSecond(Vehicle*, do
     qgcApp()->showAppMessage(guided_mode_not_supported_by_vehicle);
 }
 
-void FirmwarePlugin::guidedModeChangeHeading(Vehicle *vehicle, const QGeoCoordinate &headingCoord) const
+void FirmwarePlugin::guidedModeChangeHeading(Vehicle *vehicle, const QGeoCoordinate &/*headingCoord*/) const
 {
     Q_UNUSED(vehicle);
     qgcApp()->showAppMessage(guided_mode_not_supported_by_vehicle);
@@ -204,6 +195,7 @@ const QVariantList &FirmwarePlugin::toolIndicators(const Vehicle*)
     if (_toolIndicatorList.isEmpty()) {
         _toolIndicatorList = QVariantList({
             QVariant::fromValue(QUrl::fromUserInput("qrc:/qml/QGroundControl/Toolbar/VehicleGPSIndicator.qml")),
+            QVariant::fromValue(QUrl::fromUserInput("qrc:/qml/QGroundControl/Toolbar/GPSResilienceIndicator.qml")),
             QVariant::fromValue(QUrl::fromUserInput("qrc:/qml/QGroundControl/Toolbar/TelemetryRSSIIndicator.qml")),
             QVariant::fromValue(QUrl::fromUserInput("qrc:/qml/QGroundControl/Toolbar/RCRSSIIndicator.qml")),
             QVariant::fromValue(QUrl::fromUserInput("qrc:/qml/QGroundControl/Controls/BatteryIndicator.qml")),
@@ -314,17 +306,17 @@ void FirmwarePlugin::checkIfIsLatestStable(Vehicle *vehicle) const
 
     const QString versionFile = _getLatestVersionFileUrl(vehicle);
     qCDebug(FirmwarePluginLog) << "Downloading" << versionFile;
-    QGCFileDownload *const downloader = new QGCFileDownload(nullptr);
-    (void) connect(downloader, &QGCFileDownload::downloadComplete, this, [vehicle, this](const QString &remoteFile, const QString &localFile, const QString &errorMsg) {
-        if (errorMsg.isEmpty()) {
-            _versionFileDownloadFinished(remoteFile, localFile, vehicle);
-        } else {
+    QGCFileDownload *const downloader = new QGCFileDownload(vehicle);
+    (void) connect(downloader, &QGCFileDownload::finished, this, [vehicle, this, versionFile](bool success, const QString &localFile, const QString &errorMsg) {
+        if (success) {
+            _versionFileDownloadFinished(versionFile, localFile, vehicle);
+        } else if (!errorMsg.isEmpty()) {
             qCDebug(FirmwarePluginLog) << "Failed to download the latest fw version file. Error:" << errorMsg;
         }
         sender()->deleteLater();
     });
 
-    if (!downloader->download(versionFile)) {
+    if (!downloader->start(versionFile)) {
         downloader->deleteLater();
     }
 }

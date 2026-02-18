@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "PX4FirmwarePlugin.h"
 #include "PX4ParameterMetaData.h"
 #include "QGCApplication.h"
@@ -821,7 +812,7 @@ void PX4FirmwarePlugin::updateAvailableFlightModes(FlightModeList &modeList)
     _updateFlightModeList(modeList);
 }
 
-QVariant PX4FirmwarePlugin::expandedToolbarIndicatorSource(const Vehicle* vehicle, const QString& indicatorName) const
+QVariant PX4FirmwarePlugin::expandedToolbarIndicatorSource(const Vehicle* /*vehicle*/, const QString& indicatorName) const
 {
     if (indicatorName == "Battery") {
         return QVariant::fromValue(QUrl::fromUserInput("qrc:/qml/QGroundControl/FirmwarePlugin/PX4/PX4BatteryIndicator.qml"));

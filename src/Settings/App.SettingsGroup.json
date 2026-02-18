@@ -77,7 +77,9 @@
     "default":     50.0,
     "min":              0.0,
     "units":            "m",
-    "decimalPlaces":    1
+    "decimalPlaces":    1,
+    "userMin":          0.0,
+    "userMax":          121.92
 },
 {
     "name":             "audioMuted",
@@ -222,6 +224,13 @@
     "default":     ""
 },
 {
+    "name":             "openaipToken",
+    "shortDesc": "OpenAIP API Key",
+    "longDesc":  "Your personal API key for OpenAIP aviation maps. Get one at https://www.openaip.net",
+    "type":             "string",
+    "default":     ""
+},
+{
     "name":             "followTarget",
     "shortDesc": "Stream GCS' coordinates to Autopilot",
     "type":             "uint32",
@@ -249,18 +258,6 @@
     "shortDesc": "Comma separated list of first run prompt ids which have already been shown.",
     "type":             "string",
     "default":     ""
-},
-{
-    "name": "loginAirLink",
-    "shortDesc": "AirLink User Name",
-    "type": "string",
-    "default": ""
-},
-{
-    "name": "passAirLink",
-    "shortDesc": "AirLink Password",
-    "type": "string",
-    "default": ""
 }
 ]
 }

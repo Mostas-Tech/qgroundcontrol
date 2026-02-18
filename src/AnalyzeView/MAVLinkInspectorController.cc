@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "MAVLinkInspectorController.h"
 #include "MAVLinkChartController.h"
 #include "MAVLinkMessage.h"
@@ -146,8 +137,8 @@ void MAVLinkInspectorController::_refreshFrequency()
             continue;
         }
 
-        for (int i = 0; i < system->messages()->count(); i++) {
-            QGCMAVLinkMessage *const msg = qobject_cast<QGCMAVLinkMessage*>(system->messages()->get(i));
+        for (int messageIndex = 0; messageIndex < system->messages()->count(); messageIndex++) {
+            QGCMAVLinkMessage *const msg = qobject_cast<QGCMAVLinkMessage*>(system->messages()->get(messageIndex));
             if (msg) {
                 msg->updateFreq();
             }

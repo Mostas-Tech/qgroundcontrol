@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2022 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
@@ -100,7 +91,7 @@ Item {
             property var    activeVehicle:            QGroundControl.multiVehicleManager.activeVehicle
             property var    flightModeSettings:       QGroundControl.settingsManager.flightModeSettings
             property var    hiddenFlightModesFact:    null
-            property var    hiddenFlightModesList:    [] 
+            property var    hiddenFlightModesList:    []
 
             Component.onCompleted: {
                 // Hidden flight modes are classified by firmware and vehicle class
@@ -139,14 +130,6 @@ Item {
                         }
                     }
                 }
-            }
-
-            QGCLabel {
-                text:               qsTr("Hold to confirm")
-                font.pointSize:     ScreenTools.smallFontPointSize
-                Layout.fillWidth:   true
-                horizontalAlignment:Text.AlignHCenter
-                visible:            flightModeSettings.requireModeChangeConfirmation.rawValue
             }
 
             QGCDelayButton {

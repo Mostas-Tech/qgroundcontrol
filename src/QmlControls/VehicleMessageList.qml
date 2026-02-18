@@ -1,22 +1,9 @@
-/****************************************************************************
- *
- * (c) 2009-2020 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 import QtQuick
 import QtQuick.Controls
 import QtQuick.Layouts
 
 import QGroundControl
 import QGroundControl.Controls
-
-
-
-
 
 TextArea {
     id:                     messageText
@@ -62,11 +49,17 @@ TextArea {
             var paramName = link.substr(8);
             _fact = controller.getParameterFact(-1, paramName, true)
             if (_fact != null) {
-                paramEditorDialogComponent.createObject(mainWindow).open()
+                paramEditorDialogFactory.open()
             }
         } else {
             Qt.openUrlExternally(link);
         }
+    }
+
+    QGCPopupDialogFactory {
+        id: paramEditorDialogFactory
+
+        dialogComponent: paramEditorDialogComponent
     }
 
     Component {

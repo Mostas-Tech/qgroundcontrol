@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #include "NTRIP.h"
 #include "NTRIPSettings.h"
 #include "Fact.h"
@@ -57,8 +48,8 @@ NTRIPManager::NTRIPManager(QObject* parent)
 {
     qCDebug(NTRIPLog) << "NTRIPManager created";
     _startupTimer.start();
-    
-    _rtcmMavlink = qgcApp() ? qgcApp()->findChild<RTCMMavlink*>() : nullptr;    
+
+    _rtcmMavlink = qgcApp() ? qgcApp()->findChild<RTCMMavlink*>() : nullptr;
     if (!_rtcmMavlink) {
         QObject* parentObj = qgcApp() ? static_cast<QObject*>(qgcApp()) : static_cast<QObject*>(this);
         // Ensure an RTCMMavlink helper exists for forwarding RTCM messages
@@ -141,7 +132,7 @@ bool RTCMParser::addByte(uint8_t byte)
             _lengthBytesRead = 0;
         }
         break;
-        
+
     case ReadingLength:
         _lengthBytes[_lengthBytesRead++] = byte;
         _buffer[_bytesRead++] = byte;
@@ -155,7 +146,7 @@ bool RTCMParser::addByte(uint8_t byte)
             }
         }
         break;
-        
+
     case ReadingMessage:
         _buffer[_bytesRead++] = byte;
         if (_bytesRead >= _messageLength + 3) { // +3 for header
@@ -163,7 +154,7 @@ bool RTCMParser::addByte(uint8_t byte)
             _crcBytesRead = 0;
         }
         break;
-        
+
     case ReadingCRC:
         _crcBytes[_crcBytesRead++] = byte;
         if (_crcBytesRead == 3) {
@@ -192,7 +183,7 @@ NTRIPTCPLink::NTRIPTCPLink(const QString& hostAddress,
                            const QString& whitelist,
                            bool useSpartn,
                            QObject* parent)
-    : QObject(parent)  
+    : QObject(parent)
     , _hostAddress(hostAddress)
     , _port(port)
     , _username(username)
@@ -200,8 +191,8 @@ NTRIPTCPLink::NTRIPTCPLink(const QString& hostAddress,
     , _mountpoint(mountpoint)
     , _useSpartn(useSpartn)
 {
-   
-    
+
+
     if (_useSpartn) {
         // SPARTN path does not use RTCM whitelist or parser
         if (!whitelist.isEmpty()) {
@@ -274,10 +265,10 @@ void NTRIPTCPLink::_hardwareConnect()
     // allocate the appropriate socket type
     // SPARTN selection (TLS on 2102 or when explicitly enabled)
     if (_useSpartn) {
-        QSslSocket* sslSocket = new QSslSocket(this);  
+        QSslSocket* sslSocket = new QSslSocket(this);
         _socket = sslSocket;
     } else {
-        _socket = new QTcpSocket(this);                
+        _socket = new QTcpSocket(this);
     }
 
     _socket->setSocketOption(QAbstractSocket::KeepAliveOption, 1);
@@ -393,13 +384,13 @@ void NTRIPTCPLink::_hardwareConnect()
         QSslSocket* sslSocket = qobject_cast<QSslSocket*>(_socket);
         Q_ASSERT(sslSocket);
 
-        QObject::connect(sslSocket, &QSslSocket::encrypted, this, [this, sendHttpRequest]() {
+        QObject::connect(sslSocket, &QSslSocket::encrypted, this, [sendHttpRequest]() {
             qCDebug(NTRIPLog) << "SPARTN TLS connection established";
             sendHttpRequest();
         }, Qt::DirectConnection);
 
         QObject::connect(sslSocket, QOverload<const QList<QSslError>&>::of(&QSslSocket::sslErrors),
-                         this, [this](const QList<QSslError> &errors) {
+                         this, [](const QList<QSslError> &errors) {
             for (const QSslError &e : errors) {
                 qCWarning(NTRIPLog) << "TLS Error:" << e.errorString();
             }
@@ -828,12 +819,12 @@ void NTRIPManager::startNTRIP()
         return;
     }
     _startStopBusy = true;   // guard begin
-    
+
     qCDebug(NTRIPLog) << "startNTRIP: begin";
 
     if (_tcpLink) {
         _startStopBusy = false;  // already started; release guard
-        return; 
+        return;
     }
 
     _ntripStatus = tr("Connecting...");
@@ -909,8 +900,8 @@ void NTRIPManager::startNTRIP()
         }
 
     }, Qt::QueuedConnection);
-    
-    if (_useSpartn) {        
+
+    if (_useSpartn) {
         connect(_tcpLink, &NTRIPTCPLink::SPARTNDataUpdate, this, [this](const QByteArray& data){
             static uint32_t spartn_count = 0;
             if ((spartn_count++ % 50) == 0) {
@@ -924,14 +915,14 @@ void NTRIPManager::startNTRIP()
             emit casterStatusChanged(_casterStatus);
 
             _rtcmDataReceived(data);
-        }, Qt::QueuedConnection);        
+        }, Qt::QueuedConnection);
     } else {
         connect(_tcpLink, &NTRIPTCPLink::RTCMDataUpdate, this, &NTRIPManager::_rtcmDataReceived, Qt::QueuedConnection);
     }
 
     _tcpThread->start();
     qCDebug(NTRIPLog) << "NTRIP started";
-    
+
     _startStopBusy = false;  // guard end
 }
 
@@ -1107,7 +1098,7 @@ void NTRIPManager::_sendGGA()
                     // Try common GPS fact names
                     Fact* latF = gps->getFact(QStringLiteral("lat"));
                     Fact* lonF = gps->getFact(QStringLiteral("lon"));
-                    
+
                     // If "lat"/"lon" don't work, try alternative names
                     if (!latF) latF = gps->getFact(QStringLiteral("latitude"));
                     if (!lonF) lonF = gps->getFact(QStringLiteral("longitude"));
@@ -1115,28 +1106,28 @@ void NTRIPManager::_sendGGA()
                     if (!lonF) lonF = gps->getFact(QStringLiteral("lon_deg"));
                     if (!latF) latF = gps->getFact(QStringLiteral("latitude_deg"));
                     if (!lonF) lonF = gps->getFact(QStringLiteral("longitude_deg"));
-                    
+
                     if (latF && lonF) {
                         const double glat = latF->rawValue().toDouble();
                         const double glon = lonF->rawValue().toDouble();
-                        
+
                         // GPS coordinates might be in 1e-7 degrees format (int32 scaled)
                         double lat_deg = glat;
                         double lon_deg = glon;
-                        
+
                         // Check if values look like scaled integers (> 1000 suggests 1e-7 format)
                         if (qAbs(glat) > 1000.0 || qAbs(glon) > 1000.0) {
                             lat_deg = glat * 1e-7;
                             lon_deg = glon * 1e-7;
                         }
-                        
-                        if (qIsFinite(lat_deg) && qIsFinite(lon_deg) && 
+
+                        if (qIsFinite(lat_deg) && qIsFinite(lon_deg) &&
                             !(lat_deg == 0.0 && lon_deg == 0.0) &&
                             qAbs(lat_deg) <= 90.0 && qAbs(lon_deg) <= 180.0) {
-                            
+
                             coord = QGeoCoordinate(lat_deg, lon_deg);
                             validCoord = true;
-                            
+
                             // Get altitude from GPS if available
                             Fact* altF = gps->getFact(QStringLiteral("alt"));
                             if (!altF) altF = gps->getFact(QStringLiteral("altitude"));
@@ -1145,16 +1136,16 @@ void NTRIPManager::_sendGGA()
                                 // Altitude might be in mm or cm, convert to meters
                                 if (qAbs(raw_alt) > 10000.0) {  // > 10km suggests mm format
                                     alt_msl = raw_alt * 1e-3;   // mm to meters
-                                } else if (qAbs(raw_alt) > 1000.0) {  // > 1km suggests cm format  
+                                } else if (qAbs(raw_alt) > 1000.0) {  // > 1km suggests cm format
                                     alt_msl = raw_alt * 1e-2;   // cm to meters
                                 } else {
                                     alt_msl = raw_alt;          // already in meters
                                 }
                                 if (!qIsFinite(alt_msl)) alt_msl = 0.0;
                             }
-                            
+
                             srcUsed = QStringLiteral("GPS Raw");
-                            qCDebug(NTRIPLog) << "NTRIP: Using raw GPS data for GGA" 
+                            qCDebug(NTRIPLog) << "NTRIP: Using raw GPS data for GGA"
                                               << "lat:" << lat_deg << "lon:" << lon_deg << "alt:" << alt_msl;
                         }
                     }
@@ -1208,14 +1199,14 @@ void NTRIPManager::_sendGGA()
     }
 
     const QByteArray gga = _makeGGA(coord, alt_msl);
-    
+
     // Debug: Log the GGA sentence being sent (but reduce spam)
     static int gga_send_count = 0;
     if ((gga_send_count++ % 5) == 0) { // Log every 5th GGA to reduce spam
         qCDebug(NTRIPLog) << "NTRIP: Sending GGA:" << gga;
         qCDebug(NTRIPLog) << "NTRIP: GGA coord:" << coord << "alt:" << alt_msl << "source:" << srcUsed;
     }
-    
+
     QMetaObject::invokeMethod(_tcpLink, "sendNMEA",
                               Qt::QueuedConnection,
                               Q_ARG(QByteArray, gga));

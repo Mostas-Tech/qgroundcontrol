@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #pragma once
 
 #include "MAVLinkLib.h"
@@ -47,7 +38,7 @@ public:
 private slots:
     void    _ftpDownloadComplete                (const QString& file, const QString& errorMsg);
     void    _ftpDownloadProgress                (float progress);
-    void    _httpDownloadComplete               (QString remoteFile, QString localFile, QString errorMsg);
+    void    _httpDownloadComplete               (bool success, const QString &localFile, const QString &errorMsg, bool fromCache);
     QString _downloadCompleteJsonWorker         (const QString& jsonFileName);
     void _downloadAndTranslationComplete(QString translatedJsonTempFile, QString errorMsg);
 

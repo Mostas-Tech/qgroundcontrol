@@ -10,12 +10,18 @@
 # Default Configuration
 # ----------------------------------------------------------------------------
 
-# Set default version based on platform
+# Set default version based on platform (from build-config.json)
 if(NOT DEFINED GStreamer_FIND_VERSION)
     if(LINUX)
         set(GStreamer_FIND_VERSION 1.20)
+    elseif(WIN32)
+        set(GStreamer_FIND_VERSION ${QGC_CONFIG_GSTREAMER_WIN_VERSION})
+    elseif(ANDROID)
+        set(GStreamer_FIND_VERSION ${QGC_CONFIG_GSTREAMER_ANDROID_VERSION})
+    elseif(MACOS OR IOS)
+        set(GStreamer_FIND_VERSION ${QGC_CONFIG_GSTREAMER_MACOS_VERSION})
     else()
-        set(GStreamer_FIND_VERSION 1.22.12)
+        set(GStreamer_FIND_VERSION ${QGC_CONFIG_GSTREAMER_VERSION})
     endif()
 endif()
 
@@ -83,8 +89,8 @@ if(WIN32)
     set(GSTREAMER_PLUGIN_PATH "${GSTREAMER_LIB_PATH}/gstreamer-1.0")
     set(GSTREAMER_INCLUDE_PATH "${GStreamer_ROOT_DIR}/include")
 
-    set(ENV{PKG_CONFIG} "${GStreamer_ROOT_DIR}/bin")
-    set(PKG_CONFIG_EXECUTABLE "$ENV{PKG_CONFIG}/pkg-config.exe")
+    set(PKG_CONFIG_EXECUTABLE "${GStreamer_ROOT_DIR}/bin/pkg-config.exe")
+    set(ENV{PKG_CONFIG} "${PKG_CONFIG_EXECUTABLE}")
     set(ENV{PKG_CONFIG_PATH} "${GSTREAMER_LIB_PATH}/pkgconfig;${GSTREAMER_PLUGIN_PATH}/pkgconfig;$ENV{PKG_CONFIG_PATH}")
     list(APPEND PKG_CONFIG_ARGN
         --dont-define-prefix
@@ -163,8 +169,8 @@ elseif(ANDROID)
 
     set(ENV{PKG_CONFIG_PATH} "")
     if(CMAKE_HOST_WIN32)
-        set(ENV{PKG_CONFIG} "${GStreamer_ROOT_DIR}/share/gst-android/ndk-build/tools/windows")
-        set(PKG_CONFIG_EXECUTABLE "$ENV{PKG_CONFIG}/pkg-config.exe")
+        set(PKG_CONFIG_EXECUTABLE "${GStreamer_ROOT_DIR}/share/gst-android/ndk-build/tools/windows/pkg-config.exe")
+        set(ENV{PKG_CONFIG} "${PKG_CONFIG_EXECUTABLE}")
         set(ENV{PKG_CONFIG_LIBDIR} "${GSTREAMER_LIB_PATH}/pkgconfig;${GSTREAMER_PLUGIN_PATH}/pkgconfig")
         list(APPEND PKG_CONFIG_ARGN --dont-define-prefix)
     elseif(CMAKE_HOST_UNIX)
@@ -180,7 +186,7 @@ elseif(ANDROID)
                 find_program(PKG_CONFIG_EXECUTABLE pkg-config)
             endif()
             if(NOT PKG_CONFIG_EXECUTABLE)
-                message(FATAL_ERROR "Could not find pkg-config. Please install pkg-config using tools/setup/install-dependencies-osx.sh.")
+                message(FATAL_ERROR "Could not find pkg-config. Please install pkg-config using tools/setup/install_dependencies.py --platform macos.")
             endif()
         endif()
         set(ENV{PKG_CONFIG_LIBDIR} "${GSTREAMER_LIB_PATH}/pkgconfig:${GSTREAMER_PLUGIN_PATH}/pkgconfig")
@@ -218,8 +224,8 @@ elseif(MACOS)
     set(GSTREAMER_LIB_PATH "${GStreamer_ROOT_DIR}/lib")
     set(GSTREAMER_PLUGIN_PATH "${GSTREAMER_LIB_PATH}/gstreamer-1.0")
 
-    set(ENV{PKG_CONFIG} "${GStreamer_ROOT_DIR}/bin")
-    set(PKG_CONFIG_EXECUTABLE "$ENV{PKG_CONFIG}/pkg-config")
+    set(PKG_CONFIG_EXECUTABLE "${GStreamer_ROOT_DIR}/bin/pkg-config")
+    set(ENV{PKG_CONFIG} "${PKG_CONFIG_EXECUTABLE}")
     set(ENV{PKG_CONFIG_PATH} "${GSTREAMER_LIB_PATH}/pkgconfig:${GSTREAMER_PLUGIN_PATH}/pkgconfig:$ENV{PKG_CONFIG_PATH}")
     list(APPEND PKG_CONFIG_ARGN
         --dont-define-prefix

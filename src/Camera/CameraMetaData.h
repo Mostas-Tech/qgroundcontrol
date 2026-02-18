@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #pragma once
 
 #include <QtCore/QLoggingCategory>
@@ -32,18 +23,18 @@ class CameraMetaData
     Q_PROPERTY(double   minTriggerInterval          MEMBER minTriggerInterval       CONSTANT)
 
 public:
-    CameraMetaData(const QString &canonicalName,
-                   const QString &brand,
-                   const QString &model,
-                   double sensorWidth,
-                   double sensorHeight,
-                   double imageWidth,
-                   double imageHeight,
-                   double focalLength,
-                   bool landscape,
-                   bool fixedOrientation,
-                   double minTriggerInterval,
-                   const QString &deprecatedTranslatedName);
+    CameraMetaData(const QString &canonicalName_,
+                   const QString &brand_,
+                   const QString &model_,
+                   double sensorWidth_,
+                   double sensorHeight_,
+                   double imageWidth_,
+                   double imageHeight_,
+                   double focalLength_,
+                   bool landscape_,
+                   bool fixedOrientation_,
+                   double minTriggerInterval_,
+                   const QString &deprecatedTranslatedName_);
     ~CameraMetaData();
 
     static QList<CameraMetaData*> parseCameraMetaData();

@@ -1,12 +1,3 @@
-/****************************************************************************
- *
- * (c) 2009-2024 QGROUNDCONTROL PROJECT <http://www.qgroundcontrol.org>
- *
- * QGroundControl is licensed according to the terms in the file
- * COPYING.md in the root of the source code directory.
- *
- ****************************************************************************/
-
 #pragma once
 
 #include <QtCore/QLoggingCategory>
@@ -32,7 +23,7 @@ class QGCApplication;
 class QEvent;
 class QPostEventList;
 class QMetaMethod;
-class QMetaObject;
+struct QMetaObject;
 
 #if defined(qApp)
 #undef qApp
@@ -134,7 +125,7 @@ public slots:
 private slots:
     /// Called when the delay timer fires to show the missing parameters warning
     void _missingParamsDisplay();
-    void _qgcCurrentStableVersionDownloadComplete(const QString &remoteFile, const QString &localFile, const QString &errorMsg);
+    void _qgcCurrentStableVersionDownloadComplete(bool success, const QString &localFile, const QString &errorMsg);
     static bool _parseVersionText(const QString &versionString, int &majorVersion, int &minorVersion, int &buildVersion);
     void _showDelayedAppMessages();
 

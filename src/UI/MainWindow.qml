@@ -84,6 +84,18 @@ ApplicationWindow {
     /// Default color palette used throughout the UI
     QGCPalette { id: qgcPal; colorGroupEnabled: true }
 
+    FieldJobCatalogManager {
+        id: fieldJobCatalogManager
+    }
+
+    Connections {
+        target: fieldJobCatalogManager
+
+        function onJobUploadSucceeded() {
+            mainWindow.showFlyView()
+        }
+    }
+
     //-------------------------------------------------------------------------
     //-- Actions
 
@@ -106,14 +118,16 @@ ApplicationWindow {
         return globals.validationErrorCount <= previousValidationErrorCount
     }
 
-    function showPlanView() {
+    function showFieldsView() {
         flyView.visible = false
-        planView.visible = true
+        fieldsView.visible = true
+        planView.visible = false
         toolDrawer.visible = false
     }
 
     function showFlyView() {
         flyView.visible = true
+        fieldsView.visible = false
         planView.visible = false
         toolDrawer.visible = false
     }
@@ -270,6 +284,15 @@ ApplicationWindow {
         anchors.fill:           parent
     }
 
+    FarmFieldsView {
+        id:             fieldsView
+        anchors.fill:   parent
+        visible:        false
+        catalogManager: fieldJobCatalogManager
+        flyMissionController: globals.planMasterControllerFlyView ? globals.planMasterControllerFlyView.missionController : null
+        onFlyViewRequested: mainWindow.showFlyView()
+    }
+
     PlanView {
         id:             planView
         anchors.fill:   parent
@@ -332,12 +355,27 @@ ApplicationWindow {
                     SubMenuButton {
                         height:             toolSelectDialog._toolButtonHeight
                         Layout.fillWidth:   true
-                        text:               qsTr("Plan Flight")
-                        imageResource:      "/qmlimages/Plan.svg"
+                        text:               qsTr("Fly View")
+                        imageResource:      "/res/FlyingPaperPlane.svg"
+                        visible:            !flyView.visible
                         onClicked: {
                             if (mainWindow.allowViewSwitch()) {
                                 mainWindow.closeIndicatorDrawer()
-                                mainWindow.showPlanView()
+                                mainWindow.showFlyView()
+                            }
+                        }
+                    }
+
+                    SubMenuButton {
+                        height:             toolSelectDialog._toolButtonHeight
+                        Layout.fillWidth:   true
+                        text:               qsTr("Fields")
+                        imageResource:      "/qmlimages/Plan.svg"
+                        visible:            !fieldsView.visible
+                        onClicked: {
+                            if (mainWindow.allowViewSwitch()) {
+                                mainWindow.closeIndicatorDrawer()
+                                mainWindow.showFieldsView()
                             }
                         }
                     }

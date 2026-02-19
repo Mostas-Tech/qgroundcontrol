@@ -26,13 +26,6 @@ ListModel {
     }
 
     ListElement {
-        name: qsTr("Plan View")
-        url: "qrc:/qml/QGroundControl/AppSettings/PlanViewSettings.qml"
-        iconUrl: "qrc:/qmlimages/Plan.svg"
-        pageVisible: function() { return true }
-    }
-
-    ListElement {
         name: qsTr("Video")
         url: "qrc:/qml/QGroundControl/AppSettings/VideoSettings.qml"
         iconUrl: "qrc:/InstrumentValueIcons/camera.svg"

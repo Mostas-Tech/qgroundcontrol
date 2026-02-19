@@ -32,12 +32,12 @@ ToolIndicatorPage {
             SubMenuButton {
                 implicitHeight: root._toolButtonHeight
                 Layout.fillWidth: true
-                text: qsTr("Plan")
+                text: qsTr("Fields")
                 imageResource: "/qmlimages/Plan.svg"
                 onClicked: {
                     if (mainWindow.allowViewSwitch()) {
                         mainWindow.closeIndicatorDrawer()
-                        mainWindow.showPlanView()
+                        mainWindow.showFieldsView()
                     }
                 }
             }

@@ -9,12 +9,20 @@ target_sources(${CMAKE_PROJECT_NAME}
         EditPositionDialogController.h
         FactValueGrid.cc
         FactValueGrid.h
+        FieldCatalogEntry.cc
+        FieldCatalogEntry.h
+        FieldJobCatalogManager.cc
+        FieldJobCatalogManager.h
+        FieldPolygonEditorController.cc
+        FieldPolygonEditorController.h
         FlightPathSegment.cc
         FlightPathSegment.h
         HorizontalFactValueGrid.cc
         HorizontalFactValueGrid.h
         InstrumentValueData.cc
         InstrumentValueData.h
+        JobCatalogEntry.cc
+        JobCatalogEntry.h
         MavlinkAction.cc
         MavlinkAction.h
         MavlinkActionManager.cc
@@ -98,6 +106,9 @@ qt_add_qml_module(QGroundControlControlsModule
         EditPositionDialog.qml
         ExclusiveGroupItem.qml
         FactSlider.qml
+        FarmFieldsView.qml
+        FieldDetailView.qml
+        FieldPolygonEditorView.qml
         FileButton.qml
         FlightModeMenu.qml
         HeightIndicator.qml
@@ -107,6 +118,7 @@ qt_add_qml_module(QGroundControlControlsModule
         InstrumentValueLabel.qml
         InstrumentValueValue.qml
         JoystickThumbPad.qml
+        JobEditorView.qml
         KMLOrSHPFileDialog.qml
         LabelledButton.qml
         LabelledComboBox.qml

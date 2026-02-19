@@ -463,6 +463,27 @@ void GeoFenceController::clearAllInteractive(void)
     }
 }
 
+void GeoFenceController::setExclusionPolygons(const QVariantList& polygonPaths)
+{
+    _polygons.clearAndDeleteContents();
+    _circles.clearAndDeleteContents();
+
+    for (const QVariant& polygonPathVar : polygonPaths) {
+        const QVariantList polygonPath = polygonPathVar.toList();
+        if (polygonPath.count() < 3) {
+            continue;
+        }
+
+        QGCFencePolygon* polygon = new QGCFencePolygon(false /* inclusion */, this);
+        polygon->appendVertices(polygonPath);
+        polygon->setDirty(false);
+        _polygons.append(polygon);
+    }
+
+    clearAllInteractive();
+    setDirty(false);
+}
+
 bool GeoFenceController::supported(void) const
 {
     return _managerVehicle->capabilityBits() & MAV_PROTOCOL_CAPABILITY_MISSION_FENCE;

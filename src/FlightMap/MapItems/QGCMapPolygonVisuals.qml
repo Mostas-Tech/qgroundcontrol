@@ -40,6 +40,9 @@ Item {
     readonly property string _traceText:        qsTr("Click in the map to add vertices. Click 'Done Tracing' when finished.")
 
     function addCommonVisuals() {
+        if (!mapControl || !mapPolygon) {
+            return
+        }
         if (_objMgrCommonVisuals.empty) {
             _objMgrCommonVisuals.createObject(polygonComponent, mapControl, true)
         }
@@ -50,6 +53,9 @@ Item {
     }
 
     function addEditingVisuals() {
+        if (!mapControl || !mapPolygon) {
+            return
+        }
         if (_objMgrEditingVisuals.empty) {
             _objMgrEditingVisuals.createObjects(
                 [ dragHandlesComponent, splitHandlesComponent, centerDragHandleComponent, edgeLengthHandlesComponent ],
@@ -63,6 +69,9 @@ Item {
     }
 
     function addToolbarVisuals() {
+        if (!mapControl || !mapPolygon) {
+            return
+        }
         if (_objMgrToolVisuals.empty) {
             var toolbar = _objMgrToolVisuals.createObject(toolbarComponent, mapControl)
             toolbar.z = QGroundControl.zOrderWidgets
@@ -74,6 +83,9 @@ Item {
     }
 
     function addCircleVisuals() {
+        if (!mapControl || !mapPolygon) {
+            return
+        }
         if (_objMgrCircleVisuals.empty) {
             _objMgrCircleVisuals.createObject(radiusVisualsComponent, mapControl)
         }
@@ -142,6 +154,9 @@ Item {
     }
 
     function _handleInteractiveChanged() {
+        if (!mapControl || !mapPolygon) {
+            return
+        }
         if (interactive) {
             addEditingVisuals()
             addToolbarVisuals()
@@ -183,6 +198,9 @@ Item {
     Connections {
         target: mapPolygon
         function onTraceModeChanged(traceMode) {
+            if (!mapControl || !mapPolygon) {
+                return
+            }
             if (traceMode) {
                 _instructionText = _traceText
                 _objMgrTraceVisuals.createObject(traceMouseAreaComponent, mapControl, false)
@@ -194,10 +212,36 @@ Item {
     }
 
     Component.onCompleted: {
+        if (!mapControl || !mapPolygon) {
+            return
+        }
+
         addCommonVisuals()
         _handleInteractiveChanged()
     }
-    Component.onDestruction: mapPolygon.traceMode = false
+    onMapControlChanged: {
+        if (!mapControl || !mapPolygon) {
+            return
+        }
+
+        addCommonVisuals()
+        _handleInteractiveChanged()
+    }
+
+    onMapPolygonChanged: {
+        if (!mapControl || !mapPolygon) {
+            return
+        }
+
+        addCommonVisuals()
+        _handleInteractiveChanged()
+    }
+
+    Component.onDestruction: {
+        if (mapPolygon) {
+            mapPolygon.traceMode = false
+        }
+    }
 
     QGCDynamicObjectManager { id: _objMgrCommonVisuals }
     QGCDynamicObjectManager { id: _objMgrToolVisuals }
@@ -566,15 +610,28 @@ Item {
             property var dragArea
 
             Component.onCompleted: {
+                if (!mapControl || !mapPolygon) {
+                    return
+                }
+
                 dragHandle = centerDragHandle.createObject(mapControl)
+                if (!dragHandle) {
+                    return
+                }
                 dragHandle.coordinate = Qt.binding(function() { return mapPolygon.center })
-                mapControl.addMapItem(dragHandle)
+                if (mapControl.addMapItem) {
+                    mapControl.addMapItem(dragHandle)
+                }
                 dragArea = centerDragAreaComponent.createObject(mapControl, { "itemIndicator": dragHandle, "itemCoordinate": mapPolygon.center })
             }
 
             Component.onDestruction: {
-                dragHandle.destroy()
-                dragArea.destroy()
+                if (dragHandle) {
+                    dragHandle.destroy()
+                }
+                if (dragArea) {
+                    dragArea.destroy()
+                }
             }
         }
     }

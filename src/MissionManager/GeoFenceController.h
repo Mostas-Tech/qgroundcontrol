@@ -1,6 +1,7 @@
 #pragma once
 
 #include <QtCore/QLoggingCategory>
+#include <QtCore/QVariantList>
 #include <QtPositioning/QGeoCoordinate>
 #include <QtQmlIntegration/QtQmlIntegration>
 
@@ -55,6 +56,10 @@ public:
 
     /// Clears the interactive bit from all fence items
     Q_INVOKABLE void clearAllInteractive(void);
+
+    /// Replace all exclusion polygons with the provided paths.
+    /// Each entry in polygonPaths must be a QVariantList of QGeoCoordinate values.
+    Q_INVOKABLE void setExclusionPolygons(const QVariantList& polygonPaths);
 
     double  paramCircularFence  (void);
     Fact*   breachReturnAltitude(void) { return &_breachReturnAltitudeFact; }

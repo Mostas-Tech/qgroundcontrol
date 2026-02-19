@@ -837,6 +837,15 @@ bool MissionController::_loadJsonMissionFileV2(const QJsonObject& json, QmlObjec
                 nextSequenceNumber = surveyItem->lastSequenceNumber() + 1;
                 qCDebug(MissionControllerLog) << "Survey load complete: nextSequenceNumber" << nextSequenceNumber;
                 visualItems->append(surveyItem);
+            } else if (complexItemType == SprayComplexItem::jsonComplexItemTypeValue) {
+                qCDebug(MissionControllerLog) << "Loading Spray: nextSequenceNumber" << nextSequenceNumber;
+                SprayComplexItem* sprayItem = new SprayComplexItem(_masterController, _flyView);
+                if (!sprayItem->load(itemObject, nextSequenceNumber++, errorString)) {
+                    return false;
+                }
+                nextSequenceNumber = sprayItem->lastSequenceNumber() + 1;
+                qCDebug(MissionControllerLog) << "Spray load complete: nextSequenceNumber" << nextSequenceNumber;
+                visualItems->append(sprayItem);
             } else if (complexItemType == FixedWingLandingComplexItem::jsonComplexItemTypeValue) {
                 qCDebug(MissionControllerLog) << "Loading Fixed Wing Landing Pattern: nextSequenceNumber" << nextSequenceNumber;
                 FixedWingLandingComplexItem* landingItem = new FixedWingLandingComplexItem(_masterController, _flyView);
@@ -1902,14 +1911,14 @@ void MissionController::_initAllVisualItems(void)
 
 void MissionController::_deinitAllVisualItems(void)
 {
-    disconnect(_settingsItem, &MissionSettingsItem::coordinateChanged, this, &MissionController::_recalcAll);
+    disconnect(_settingsItem, &MissionSettingsItem::coordinateChanged, this, &MissionController::_recalcMissionFlightStatus);
     disconnect(_settingsItem, &MissionSettingsItem::coordinateChanged, this, &MissionController::plannedHomePositionChanged);
 
     for (int i=0; i<_visualItems->count(); i++) {
         _deinitVisualItem(qobject_cast<VisualMissionItem*>(_visualItems->get(i)));
     }
 
-    disconnect(_visualItems, &QmlObjectListModel::dirtyChanged, this, &MissionController::dirtyChanged);
+    disconnect(_visualItems, &QmlObjectListModel::dirtyChanged, this, &MissionController::_visualItemsDirtyChanged);
     disconnect(_visualItems, &QmlObjectListModel::countChanged, this, &MissionController::_updateContainsItems);
 }
 
@@ -1951,8 +1960,8 @@ void MissionController::_initVisualItem(VisualMissionItem* visualItem)
 
 void MissionController::_deinitVisualItem(VisualMissionItem* visualItem)
 {
-    // Disconnect all signals
-    disconnect(visualItem, nullptr, nullptr, nullptr);
+    // Only disconnect item -> this connections to avoid wildcard disconnect warnings.
+    disconnect(visualItem, nullptr, this, nullptr);
 }
 
 void MissionController::_itemCommandChanged(void)
@@ -1964,8 +1973,18 @@ void MissionController::_itemCommandChanged(void)
 void MissionController::_managerVehicleChanged(Vehicle* managerVehicle)
 {
     if (_managerVehicle) {
-        _missionManager->disconnect(this);
-        _managerVehicle->disconnect(this);
+        disconnect(_missionManager, &MissionManager::newMissionItemsAvailable, this, &MissionController::_newMissionItemsAvailableFromVehicle);
+        disconnect(_missionManager, &MissionManager::sendComplete,            this, &MissionController::_managerSendComplete);
+        disconnect(_missionManager, &MissionManager::removeAllComplete,       this, &MissionController::_managerRemoveAllComplete);
+        disconnect(_missionManager, &MissionManager::inProgressChanged,       this, &MissionController::_inProgressChanged);
+        disconnect(_missionManager, &MissionManager::progressPctChanged,      this, &MissionController::_progressPctChanged);
+        disconnect(_missionManager, &MissionManager::currentIndexChanged,     this, &MissionController::_currentMissionIndexChanged);
+        disconnect(_missionManager, &MissionManager::lastCurrentIndexChanged, this, &MissionController::resumeMissionIndexChanged);
+        disconnect(_missionManager, &MissionManager::resumeMissionReady,      this, &MissionController::resumeMissionReady);
+        disconnect(_missionManager, &MissionManager::resumeMissionUploadFail, this, &MissionController::resumeMissionUploadFail);
+        disconnect(_managerVehicle, &Vehicle::defaultCruiseSpeedChanged,      this, &MissionController::_recalcMissionFlightStatusSignal);
+        disconnect(_managerVehicle, &Vehicle::defaultHoverSpeedChanged,       this, &MissionController::_recalcMissionFlightStatusSignal);
+        disconnect(_managerVehicle, &Vehicle::vehicleTypeChanged,             this, &MissionController::complexMissionItemNamesChanged);
         _managerVehicle = nullptr;
         _missionManager = nullptr;
     }

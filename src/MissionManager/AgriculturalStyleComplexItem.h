@@ -198,6 +198,7 @@ protected:
 
     // Recalc legs when inputs change
     void _rebuildTransects();
+    void _rebuildTransectsFromVisualPoints();
     void _recalcComplexDistance();
     void _bindVehicleParameterFactsIfNeeded();
     void _handleVehicleParametersReady(bool ready);
@@ -297,6 +298,7 @@ private:
 
     // JSON keys
     static constexpr const char* _jsonKey                         = "AgriculturalStyleComplexItem";
+    static constexpr const char* _jsonSurveyAreaPolygonKey        = "surveyAreaPolygon";
     static constexpr const char* _jsonVisualTransectPointsKey     = "visualTransectPoints";
     static constexpr const char* _jsonVisualFieldTransectPairsKey = "visualFieldTransectPairs";
     static constexpr const char* _jsonItemsKey                    = "Items";

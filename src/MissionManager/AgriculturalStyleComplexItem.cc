@@ -36,6 +36,11 @@ const QString kVehicleSpeedMaxParamName = QStringLiteral("MANUF_GSPD_MAX");
 const QString kVehicleFlowMinParamName = QStringLiteral("MANUF_FLOW_MIN");
 const QString kVehicleFlowMaxParamName = QStringLiteral("MANUF_FLOW_MAX");
 
+constexpr double kDefaultVehicleMinSpeedMps = 1.0;
+constexpr double kDefaultVehicleMaxSpeedMps = 8.0;
+constexpr double kDefaultVehicleMinFlowLpm = 0.5;
+constexpr double kDefaultVehicleMaxFlowLpm = 4.0;
+
 bool factValueToDouble(Fact* fact, double& outValue)
 {
     if (!fact) {
@@ -1212,6 +1217,47 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
     return;
 }
 
+void AgriculturalStyleComplexItem::_rebuildTransectsFromVisualPoints()
+{
+    if (!_transects.isEmpty() || _visualTransectPoints.size() < 2) {
+        return;
+    }
+
+    QList<QList<CoordInfo_t>> recoveredTransects;
+    recoveredTransects.reserve(_visualTransectPoints.size() / 2);
+
+    for (int i = 0; i + 1 < _visualTransectPoints.size(); i += 2) {
+        const QGeoCoordinate entryCoord = _visualTransectPoints[i].value<QGeoCoordinate>();
+        const QGeoCoordinate exitCoord = _visualTransectPoints[i + 1].value<QGeoCoordinate>();
+        if (!entryCoord.isValid() || !exitCoord.isValid()) {
+            continue;
+        }
+
+        CoordInfo_t entry;
+        entry.coord = entryCoord;
+        entry.coordType = CoordTypeSurveyEntry;
+
+        CoordInfo_t exit;
+        exit.coord = exitCoord;
+        exit.coordType = CoordTypeSurveyExit;
+
+        QList<CoordInfo_t> leg;
+        leg << entry << exit;
+        recoveredTransects.append(leg);
+    }
+
+    if (recoveredTransects.isEmpty()) {
+        return;
+    }
+
+    _transects = recoveredTransects;
+    _coordinate = _transects.first().first().coord;
+    _exitCoordinate = _transects.last().last().coord;
+
+    qCDebug(AgriculturalStyleComplexItemLog) << "Recovered" << _transects.size()
+                                             << "spray transects from visual points fallback.";
+}
+
 void AgriculturalStyleComplexItem::_polyChanged() {
     _rebuildTransects();
 }
@@ -1396,35 +1442,36 @@ void AgriculturalStyleComplexItem::recalcMissionItems()
         return;
     }
 
-    double minSpeed = qQNaN();
-    double maxSpeed = qQNaN();
-    double minFlow = qQNaN();
-    double maxFlow = qQNaN();
+    double minSpeed = kDefaultVehicleMinSpeedMps;
+    double maxSpeed = kDefaultVehicleMaxSpeedMps;
+    double minFlow = kDefaultVehicleMinFlowLpm;
+    double maxFlow = kDefaultVehicleMaxFlowLpm;
 
-    auto extract = [&](Fact* fact, const QString& paramName, double& outValue) -> bool {
-        if (!factValueToDouble(fact, outValue)) {
-            commitState(qQNaN(), qQNaN(), false,
-                        tr("Vehicle parameter %1 unavailable").arg(paramName));
-            return false;
+    auto extractOrDefault = [](Fact* fact, double fallbackValue, double& outValue) {
+        outValue = fallbackValue;
+        double candidate = qQNaN();
+        if (!factValueToDouble(fact, candidate)) {
+            return;
         }
-        return true;
-     };
+        if (!qIsFinite(candidate) || candidate <= 0.0) {
+            return;
+        }
+        outValue = candidate;
+    };
 
-    if (!extract(_vehicleMinSpeedFact, kVehicleSpeedMinParamName, minSpeed) ||
-        !extract(_vehicleMaxSpeedFact, kVehicleSpeedMaxParamName, maxSpeed) ||
-        !extract(_vehicleMinFlowFact,  kVehicleFlowMinParamName,  minFlow) ||
-        !extract(_vehicleMaxFlowFact,  kVehicleFlowMaxParamName,  maxFlow)) {
-        return;
+    extractOrDefault(_vehicleMinSpeedFact, kDefaultVehicleMinSpeedMps, minSpeed);
+    extractOrDefault(_vehicleMaxSpeedFact, kDefaultVehicleMaxSpeedMps, maxSpeed);
+    extractOrDefault(_vehicleMinFlowFact,  kDefaultVehicleMinFlowLpm, minFlow);
+    extractOrDefault(_vehicleMaxFlowFact,  kDefaultVehicleMaxFlowLpm, maxFlow);
+
+    if (minSpeed > maxSpeed) {
+        minSpeed = kDefaultVehicleMinSpeedMps;
+        maxSpeed = kDefaultVehicleMaxSpeedMps;
     }
 
-    if (minSpeed <= 0.0 || maxSpeed <= 0.0 || minSpeed > maxSpeed) {
-        commitState(qQNaN(), qQNaN(), false, tr("Vehicle speed limits invalid."));
-        return;
-    }
-
-    if (minFlow <= 0.0 || maxFlow <= 0.0 || minFlow > maxFlow) {
-        commitState(qQNaN(), qQNaN(), false, tr("Vehicle flow limits invalid."));
-        return;
+    if (minFlow > maxFlow) {
+        minFlow = kDefaultVehicleMinFlowLpm;
+        maxFlow = kDefaultVehicleMaxFlowLpm;
     }
 
     const double dropletMicron = _pesticideDropletSizeFact.rawValue().toDouble();
@@ -1530,8 +1577,9 @@ void AgriculturalStyleComplexItem::_bindVehicleParameterFactsIfNeeded()
     auto bindFact = [&](const QString& paramName, Fact*& target) {
         target = nullptr;
         if (!pm->parameterExists(ParameterManager::defaultComponentId, paramName)) {
-            qCWarning(AgriculturalStyleComplexItemLog)
-                << "AgriculturalStyleComplexItem missing vehicle parameter" << paramName;
+            qCDebug(AgriculturalStyleComplexItemLog)
+                << "AgriculturalStyleComplexItem parameter unavailable, using defaults for"
+                << paramName;
             return;
         }
         target = pm->getParameter(ParameterManager::defaultComponentId, paramName);
@@ -1597,6 +1645,19 @@ void AgriculturalStyleComplexItem::_buildAndAppendMissionItems(QList<MissionItem
     int seqNum = _sequenceNumber;
 
     _applyPesticideCalculations();
+    if (_loadedMissionItems.isEmpty() && _transects.isEmpty() && _sprayParametersConfirmed) {
+        const QVariantList preservedVisualTransectPoints = _visualTransectPoints;
+        _rebuildTransects();
+        if (_transects.isEmpty() && _visualTransectPoints.isEmpty() && !preservedVisualTransectPoints.isEmpty()) {
+            _visualTransectPoints = preservedVisualTransectPoints;
+        }
+        if (_transects.isEmpty()) {
+            _rebuildTransectsFromVisualPoints();
+        }
+    }
+    if (_sprayParametersConfirmed && _transects.isEmpty()) {
+        qCWarning(AgriculturalStyleComplexItemLog) << "Spray mission build has no transects; generated mission item list will be empty.";
+    }
 
     // Optionally set speed when fixed. We keep it simple: one DO_CHANGE_SPEED at the beginning.
     if (_speedModeFact.rawValue().toInt() == SpeedModeFixed) {
@@ -1711,6 +1772,10 @@ void AgriculturalStyleComplexItem::save(QJsonArray& planItems) {
     inner[_jsonSprayInputsConfirmedKey] = _sprayParametersConfirmed;
     // Terrain placeholders saved only when we later enable terrain mode
 
+    QJsonValue surveyPolygonJson;
+    JsonHelper::saveGeoCoordinateArray(_surveyAreaPolygon.path(), false /*writeAltitude*/, surveyPolygonJson);
+    inner[_jsonSurveyAreaPolygonKey] = surveyPolygonJson;
+
     // Save visuals (polyline of leg endpoints)
     QJsonValue visualJson;
     JsonHelper::saveGeoCoordinateArray(_visualTransectPoints, false /*writeAltitude*/, visualJson);
@@ -1775,6 +1840,18 @@ bool AgriculturalStyleComplexItem::load(const QJsonObject& complexObject, int se
         : true;
     _setSprayParametersConfirmed(sprayConfirmed);
 
+    if (inner.contains(_jsonSurveyAreaPolygonKey)) {
+        QVariantList surveyPolygonPath;
+        if (!JsonHelper::loadGeoCoordinateArray(inner[_jsonSurveyAreaPolygonKey], false /* altitudeRequired */, surveyPolygonPath, errorString)) {
+            _ignoreRecalc = false;
+            return false;
+        }
+        _surveyAreaPolygon.beginReset();
+        _surveyAreaPolygon.clear();
+        _surveyAreaPolygon.appendVertices(surveyPolygonPath);
+        _surveyAreaPolygon.endReset();
+    }
+
     // Load visuals
     if (inner.contains(_jsonVisualTransectPointsKey)) {
         if (!JsonHelper::loadGeoCoordinateArray(inner[_jsonVisualTransectPointsKey], false /* altitudeRequired */, _visualTransectPoints, errorString)) {
@@ -1804,6 +1881,16 @@ bool AgriculturalStyleComplexItem::load(const QJsonObject& complexObject, int se
     _ignoreRecalc = false;
     _bindVehicleParameterFactsIfNeeded();
     recalcMissionItems();
+    if (_loadedMissionItems.isEmpty() && _sprayParametersConfirmed) {
+        const QVariantList preservedVisualTransectPoints = _visualTransectPoints;
+        _rebuildTransects();
+        if (_transects.isEmpty() && _visualTransectPoints.isEmpty() && !preservedVisualTransectPoints.isEmpty()) {
+            _visualTransectPoints = preservedVisualTransectPoints;
+        }
+        if (_transects.isEmpty()) {
+            _rebuildTransectsFromVisualPoints();
+        }
+    }
     setDirty(false);
     return true;
 }

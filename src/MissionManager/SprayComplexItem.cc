@@ -29,8 +29,10 @@ SprayComplexItem::SprayComplexItem(PlanMasterController* masterController, bool 
 
 void SprayComplexItem::appendMissionItems(QList<MissionItem*>& items, QObject* missionItemParent)
 {
-    // Base builder handles waypoints + optional DO_CHANGE_SPEED and now injects NAV_SCRIPT_TIME start/stop.
-    _buildAndAppendMissionItems(items, missionItemParent);
+    // Keep base save/load behavior:
+    // - If mission items were loaded from plan snapshot, reuse them exactly.
+    // - Otherwise build waypoints/scripts from current transects.
+    AgriculturalStyleComplexItem::appendMissionItems(items, missionItemParent);
 }
 
 MissionItem* SprayComplexItem::_createScriptTimeItem(int sequenceNumber, int action, MAV_FRAME frame,

@@ -1,6 +1,7 @@
 #include "APMAirframeComponentControllerTest.h"
 
 #include <QtCore/QFile>
+#include <QtCore/QMetaObject>
 #include <QtCore/QTemporaryDir>
 #include <QtGui/QGuiApplication>
 
@@ -19,7 +20,10 @@ void APMAirframeComponentControllerTest::_downloadCompleteSlotsRestoreCursor()
 
     // Failure path for github metadata download should restore wait cursor.
     QGuiApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
-    controller._githubJsonDownloadComplete(false, QString(), QStringLiteral("simulated download error"));
+    QVERIFY(QMetaObject::invokeMethod(&controller, "_githubJsonDownloadComplete",
+                                      Q_ARG(bool, false),
+                                      Q_ARG(QString, QString()),
+                                      Q_ARG(QString, QStringLiteral("simulated download error"))));
     QVERIFY(QGuiApplication::overrideCursor() == nullptr);
 
     // Success path with invalid JSON should also restore wait cursor.
@@ -32,7 +36,10 @@ void APMAirframeComponentControllerTest::_downloadCompleteSlotsRestoreCursor()
     jsonFile.close();
 
     QGuiApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
-    controller._githubJsonDownloadComplete(true, invalidJsonFile, QString());
+    QVERIFY(QMetaObject::invokeMethod(&controller, "_githubJsonDownloadComplete",
+                                      Q_ARG(bool, true),
+                                      Q_ARG(QString, invalidJsonFile),
+                                      Q_ARG(QString, QString())));
     QVERIFY(QGuiApplication::overrideCursor() == nullptr);
 
     // Success path with missing download_url should fail start and restore wait cursor.
@@ -43,12 +50,18 @@ void APMAirframeComponentControllerTest::_downloadCompleteSlotsRestoreCursor()
     missingUrlFile.close();
 
     QGuiApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
-    controller._githubJsonDownloadComplete(true, missingDownloadUrlJsonFile, QString());
+    QVERIFY(QMetaObject::invokeMethod(&controller, "_githubJsonDownloadComplete",
+                                      Q_ARG(bool, true),
+                                      Q_ARG(QString, missingDownloadUrlJsonFile),
+                                      Q_ARG(QString, QString())));
     QVERIFY(QGuiApplication::overrideCursor() == nullptr);
 
     // Parameter file download failure should restore wait cursor.
     QGuiApplication::setOverrideCursor(QCursor(Qt::WaitCursor));
-    controller._paramFileDownloadComplete(false, QString(), QStringLiteral("simulated param download error"));
+    QVERIFY(QMetaObject::invokeMethod(&controller, "_paramFileDownloadComplete",
+                                      Q_ARG(bool, false),
+                                      Q_ARG(QString, QString()),
+                                      Q_ARG(QString, QStringLiteral("simulated param download error"))));
     QVERIFY(QGuiApplication::overrideCursor() == nullptr);
 }
 

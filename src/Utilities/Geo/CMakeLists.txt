@@ -55,7 +55,6 @@ CPMAddPackage(
         "PKGDIR OFF"
         "DOCDIR OFF"
         "EXAMPLEDIR OFF"
-    PATCHES geographiclib.patch
 )
 
 target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE GeographicLib::GeographicLib)

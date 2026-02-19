@@ -5,6 +5,7 @@
 
 #include <QtCore/QTemporaryDir>
 #include <QtCore/QTextStream>
+#include <QtCore/QMetaObject>
 #include <QtTest/QSignalSpy>
 
 #define private public
@@ -118,7 +119,11 @@ void ComponentInformationTranslationTest::_onDownloadCompletedFailurePropagatesE
     QSignalSpy completeSpy(&translation, &ComponentInformationTranslation::downloadComplete);
     QVERIFY(completeSpy.isValid());
 
-    translation.onDownloadCompleted(false, QString(), QStringLiteral("simulated failure"), false);
+    QVERIFY(QMetaObject::invokeMethod(&translation, "onDownloadCompleted",
+                                      Q_ARG(bool, false),
+                                      Q_ARG(QString, QString()),
+                                      Q_ARG(QString, QStringLiteral("simulated failure")),
+                                      Q_ARG(bool, false)));
     QCOMPARE(completeSpy.count(), 1);
 
     const QList<QVariant> args = completeSpy.first();

@@ -1,6 +1,7 @@
 #include "FirmwareUpgradeControllerTest.h"
 
 #include <QtCore/QFile>
+#include <QtCore/QMetaObject>
 #include <QtCore/QTemporaryDir>
 #include <QtCore/QTextStream>
 #include <QtTest/QSignalSpy>
@@ -16,7 +17,10 @@ void FirmwareUpgradeControllerTest::_manifestCompleteErrorClearsDownloadingState
     QVERIFY(spy.isValid());
 
     controller._downloadingFirmwareList = true;
-    controller._ardupilotManifestDownloadComplete(false, QString(), QStringLiteral("simulated error"));
+    QVERIFY(QMetaObject::invokeMethod(&controller, "_ardupilotManifestDownloadComplete",
+                                      Q_ARG(bool, false),
+                                      Q_ARG(QString, QString()),
+                                      Q_ARG(QString, QStringLiteral("simulated error"))));
 
     QVERIFY(!controller._downloadingFirmwareList);
     QVERIFY(!spy.isEmpty());
@@ -34,7 +38,10 @@ void FirmwareUpgradeControllerTest::_manifestCompleteBadJsonClearsDownloadingSta
     const QString missingFile = tempDir.path() + QStringLiteral("/missing_manifest.json");
 
     controller._downloadingFirmwareList = true;
-    controller._ardupilotManifestDownloadComplete(true, missingFile, QString());
+    QVERIFY(QMetaObject::invokeMethod(&controller, "_ardupilotManifestDownloadComplete",
+                                      Q_ARG(bool, true),
+                                      Q_ARG(QString, missingFile),
+                                      Q_ARG(QString, QString())));
 
     QVERIFY(!controller._downloadingFirmwareList);
     QVERIFY(!spy.isEmpty());
@@ -75,7 +82,10 @@ void FirmwareUpgradeControllerTest::_manifestCompleteValidJsonPopulatesManifestI
     controller._bootloaderFound = false;
     controller._rgManifestFirmwareInfo.clear();
     controller._downloadingFirmwareList = true;
-    controller._ardupilotManifestDownloadComplete(true, manifestPath, QString());
+    QVERIFY(QMetaObject::invokeMethod(&controller, "_ardupilotManifestDownloadComplete",
+                                      Q_ARG(bool, true),
+                                      Q_ARG(QString, manifestPath),
+                                      Q_ARG(QString, QString())));
 
     QVERIFY(!controller._downloadingFirmwareList);
     QVERIFY(!spy.isEmpty());
@@ -118,7 +128,10 @@ void FirmwareUpgradeControllerTest::_px4ReleasesCompleteParsesStableAndBeta()
 
     controller._px4StableVersion.clear();
     controller._px4BetaVersion.clear();
-    controller._px4ReleasesGithubDownloadComplete(true, releasesPath, QString());
+    QVERIFY(QMetaObject::invokeMethod(&controller, "_px4ReleasesGithubDownloadComplete",
+                                      Q_ARG(bool, true),
+                                      Q_ARG(QString, releasesPath),
+                                      Q_ARG(QString, QString())));
 
     QCOMPARE(controller._px4StableVersion, QStringLiteral("v1.15.2"));
     QCOMPARE(controller._px4BetaVersion, QStringLiteral("v1.16.0-beta1"));

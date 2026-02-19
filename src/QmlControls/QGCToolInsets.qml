@@ -10,7 +10,9 @@ QtObject {
     property real topEdgeCenterInset:     0
     property real topEdgeLeftInset:         0
     property real topEdgeRightInset:        0
-    property real bottomEdgeCenterInset: (Qt.platform.os === "android" ? 0 : safeArea.bottom)
+    property real bottomEdgeCenterInset: (Qt.platform.os === "android"
+                                          ? 0
+                                          : (typeof safeArea !== "undefined" && safeArea ? safeArea.bottom : 0))
     property real bottomEdgeLeftInset:      0
     property real bottomEdgeRightInset:     0
 

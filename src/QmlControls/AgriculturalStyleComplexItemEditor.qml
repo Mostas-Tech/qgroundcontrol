@@ -79,7 +79,6 @@ Rectangle {
                         to:                     missionItem.pesticideLitersPerDekar.max
                         stepSize:               missionItem.pesticideLitersPerDekar.increment > 0 ? missionItem.pesticideLitersPerDekar.increment : 0.01
                         live:                   false
-                        tickmarksEnabled:       false
                         Layout.fillWidth:       true
                         Layout.columnSpan:      2
                         Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
@@ -108,7 +107,6 @@ Rectangle {
                         to:                     missionItem.pesticideDropletSize.max
                         stepSize:               missionItem.pesticideDropletSize.increment > 0 ? missionItem.pesticideDropletSize.increment : 1
                         live:                   false
-                        tickmarksEnabled:       false
                         Layout.fillWidth:       true
                         Layout.columnSpan:      2
                         Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
@@ -182,7 +180,6 @@ Rectangle {
                         to:                     359
                         stepSize:               1
                         live:                   true
-                        tickmarksEnabled:       false
                         Layout.fillWidth:       true
                         Layout.columnSpan:      2
                         Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
@@ -208,7 +205,6 @@ Rectangle {
                         to:                     50.0
                         stepSize:               0.1
                         live:                   false
-                        tickmarksEnabled:       false
                         Layout.fillWidth:       true
                         Layout.columnSpan:      2
                         Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
@@ -238,7 +234,6 @@ Rectangle {
                         to:                     50.0
                         stepSize:               0.1
                         live:                   false
-                        tickmarksEnabled:       false
                         Layout.fillWidth:       true
                         Layout.columnSpan:      2
                         Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5

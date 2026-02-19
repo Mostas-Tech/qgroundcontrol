@@ -48,7 +48,6 @@ AgriculturalStyleComplexItemEditor {
                     to:                     359
                     stepSize:               1
                     live:                   true
-                    tickmarksEnabled:       false
                     Layout.fillWidth:       true
                     Layout.columnSpan:      2
                     Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
@@ -69,7 +68,6 @@ AgriculturalStyleComplexItemEditor {
                     to:                     50.0
                     stepSize:               0.1
                     live:                   true
-                    tickmarksEnabled:       false
                     Layout.fillWidth:       true
                     Layout.columnSpan:      2
                     Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
@@ -94,7 +92,6 @@ AgriculturalStyleComplexItemEditor {
                     to:                     200.0
                     stepSize:               0.5
                     live:                   true
-                    tickmarksEnabled:       false
                     Layout.fillWidth:       true
                     Layout.columnSpan:      2
                     Layout.preferredHeight: ScreenTools.defaultFontPixelHeight * 1.5
@@ -142,7 +139,6 @@ AgriculturalStyleComplexItemEditor {
                     to:                     30.0
                     stepSize:               0.1
                     live:                   true
-                    tickmarksEnabled:       false
                     enabled:                manualSpeedCheck.checked
                     Layout.fillWidth:       true
                     Layout.columnSpan:      2

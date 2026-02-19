@@ -49,6 +49,7 @@ class SettingsManager : public QObject
     Q_MOC_INCLUDE("AutoConnectSettings.h")
     Q_MOC_INCLUDE("BatteryIndicatorSettings.h")
     Q_MOC_INCLUDE("BrandImageSettings.h")
+    Q_MOC_INCLUDE("AgriBoardDebugSettings.h")
     Q_MOC_INCLUDE("MavlinkActionsSettings.h")
     Q_MOC_INCLUDE("FirmwareUpgradeSettings.h")
     Q_MOC_INCLUDE("FlightMapSettings.h")
@@ -148,6 +149,7 @@ private:
     AutoConnectSettings *_autoConnectSettings = nullptr;
     BatteryIndicatorSettings *_batteryIndicatorSettings = nullptr;
     BrandImageSettings *_brandImageSettings = nullptr;
+    AgriBoardDebugSettings *_agriBoardDebugSettings = nullptr;
     MavlinkActionsSettings *_mavlinkActionsSettings = nullptr;
     FirmwareUpgradeSettings *_firmwareUpgradeSettings = nullptr;
     FlightMapSettings *_flightMapSettings = nullptr;

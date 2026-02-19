@@ -52,35 +52,42 @@ if(NOT TARGET ZLIB::ZLIB AND NOT TARGET ZLIB::ZLIBSTATIC)
         )
     endif()
 
-CPMAddPackage(
-    NAME zlib
-    GITHUB_REPOSITORY madler/zlib
-    VERSION 1.3.1.2
-    GIT_TAG v1.3.1.2
-    OPTIONS
-        "ZLIB_BUILD_TESTING OFF"
-        "ZLIB_BUILD_SHARED OFF"
-        "ZLIB_BUILD_STATIC ON"
-        "ZLIB_BUILD_MINIZIP OFF"
-        "ZLIB_INSTALL OFF"
-        "ZLIB_PREFIX OFF"
-        "${ZLIB_EXTRA_OPTIONS}"
-)
+    CPMAddPackage(
+        NAME zlib
+        GITHUB_REPOSITORY madler/zlib
+        VERSION 1.3.1.2
+        GIT_TAG v1.3.1.2
+        OPTIONS
+            "ZLIB_BUILD_TESTING OFF"
+            "ZLIB_BUILD_SHARED OFF"
+            "ZLIB_BUILD_STATIC ON"
+            "ZLIB_BUILD_MINIZIP OFF"
+            "ZLIB_INSTALL OFF"
+            "ZLIB_PREFIX OFF"
+            "${ZLIB_EXTRA_OPTIONS}"
+    )
 
-# Suppress compiler warnings for zlib dependency
-if(zlib_ADDED)
-    qgc_disable_dependency_warnings(zlibstatic)
+    # Suppress compiler warnings for zlib dependency
+    if(zlib_ADDED)
+        qgc_disable_dependency_warnings(zlibstatic)
+    endif()
+
+    # Export ZLIB paths for libarchive to find
+    set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}" CACHE PATH "" FORCE)
+    set(ZLIB_LIBRARY "zlibstatic" CACHE STRING "" FORCE)
+    set(ZLIB_LIBRARIES "zlibstatic" CACHE STRING "" FORCE)
+    set(ZLIB_FOUND TRUE CACHE BOOL "" FORCE)
+    if(NOT TARGET ZLIB::ZLIB)
+        add_library(ZLIB::ZLIB ALIAS zlibstatic)
+    endif()
 endif()
 
-target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ZLIB::ZLIBSTATIC)
-
-# Export ZLIB paths for libarchive to find
-set(ZLIB_INCLUDE_DIR "${zlib_SOURCE_DIR};${zlib_BINARY_DIR}" CACHE PATH "" FORCE)
-set(ZLIB_LIBRARY "zlibstatic" CACHE STRING "" FORCE)
-set(ZLIB_LIBRARIES "zlibstatic" CACHE STRING "" FORCE)
-set(ZLIB_FOUND TRUE CACHE BOOL "" FORCE)
-if(NOT TARGET ZLIB::ZLIB)
-    add_library(ZLIB::ZLIB ALIAS zlibstatic)
+if(TARGET ZLIB::ZLIBSTATIC)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ZLIB::ZLIBSTATIC)
+elseif(TARGET ZLIB::ZLIB)
+    target_link_libraries(${CMAKE_PROJECT_NAME} PRIVATE ZLIB::ZLIB)
+else()
+    message(FATAL_ERROR "zlib target not found: expected ZLIB::ZLIBSTATIC or ZLIB::ZLIB")
 endif()
 
 # ============================================================================

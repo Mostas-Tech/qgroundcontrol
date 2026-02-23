@@ -544,6 +544,15 @@ AgriculturalStyleComplexItem::AgriculturalStyleComplexItem(PlanMasterController*
     _geoFenceCircles = gfc ? gfc->circles() : nullptr;
     _geoFencePolygons = gfc ? gfc->polygons() : nullptr;
 
+    if (_geoFenceCircles) {
+        // GeoFence items are loaded after mission items from plan files. Rebuild when circles appear/disappear.
+        connect(_geoFenceCircles, &QmlObjectListModel::countChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
+    }
+    if (_geoFencePolygons) {
+        // GeoFence items are loaded after mission items from plan files. Rebuild when polygons appear/disappear.
+        connect(_geoFencePolygons, &QmlObjectListModel::countChanged, this, &AgriculturalStyleComplexItem::_rebuildTransects);
+    }
+
     if (_masterController) {
         connect(_masterController, &PlanMasterController::managerVehicleChanged,
                 this, &AgriculturalStyleComplexItem::_handleManagerVehicleChanged,
@@ -606,6 +615,20 @@ void AgriculturalStyleComplexItem::setDirty(bool dirty) {
         _dirty = dirty;
         emit dirtyChanged(_dirty);
     }
+}
+
+void AgriculturalStyleComplexItem::_clearLoadedMissionItems()
+{
+    _loadedMissionItems.clear();
+    if (_loadedMissionItemsParent) {
+        _loadedMissionItemsParent->deleteLater();
+        _loadedMissionItemsParent = nullptr;
+    }
+}
+
+bool AgriculturalStyleComplexItem::_shouldUseLoadedMissionItems() const
+{
+    return !_dirty && !_loadedMissionItems.isEmpty();
 }
 
 // Build a simple WP at coordinate with altitude from vehicle default (no terrain mode yet)
@@ -885,6 +908,9 @@ QPolygonF AgriculturalStyleComplexItem::fencePolygonToNed(const QGCFencePolygon*
 
 void AgriculturalStyleComplexItem::_rebuildTransects() {
     if (_ignoreRecalc) return;
+
+    // Geometry changed: stop reusing stale mission-item snapshots loaded from disk.
+    _clearLoadedMissionItems();
 
     _transects.clear();
     _visualTransectPoints.clear();
@@ -1336,18 +1362,24 @@ void AgriculturalStyleComplexItem::confirmSprayParameters() {
 }
 
 int AgriculturalStyleComplexItem::lastSequenceNumber(void) const {
-    if (_loadedMissionItems.count()) {
+    if (_shouldUseLoadedMissionItems()) {
         return _sequenceNumber + _loadedMissionItems.count() - 1;
     }
 
     int itemCount = (_speedModeFact.rawValue().toInt() == SpeedModeFixed) ? 1 : 0; // DO_CHANGE_SPEED at start
+    int validLegCount = 0;
     for (const QList<CoordInfo_t>& seg : _transects) {
         if (seg.size() < 2) {
             continue;
         }
+        ++validLegCount;
         itemCount += 2; // entry + exit waypoints per leg
-        itemCount += _scriptTimeItemCountPerLeg();
     }
+
+    if (validLegCount > 0) {
+        itemCount += _scriptTimeItemCountForMission();
+    }
+
     return _sequenceNumber + qMax(0, itemCount - 1);
 }
 
@@ -1368,11 +1400,11 @@ double AgriculturalStyleComplexItem::specifiedFlightSpeed(void) {
 
 void AgriculturalStyleComplexItem::appendMissionItems(QList<MissionItem*>& items, QObject* missionItemParent) {
     // If we have mission items loaded from a saved plan, use those so reload reproduces exact items.
-    if (_loadedMissionItems.count()) {
+    if (_shouldUseLoadedMissionItems()) {
         _appendLoadedMissionItems(items, missionItemParent);
     } else {
         // For base class we only create NAV_WAYPOINTs along legs and pure turnarounds as geometry.
-        // Derived classes (Spray/Spreader) will inject SCRIPT_TIME start/stop around productive legs.
+        // Derived classes (Spray/Spreader) may inject SCRIPT_TIME start/stop around the full leg set.
         _buildAndAppendMissionItems(items, missionItemParent);
     }
 }
@@ -1673,22 +1705,45 @@ void AgriculturalStyleComplexItem::_buildAndAppendMissionItems(QList<MissionItem
     }
 
     const MAV_FRAME frame = MAV_FRAME_GLOBAL_RELATIVE_ALT;
+    const QList<CoordInfo_t>* firstValidLeg = nullptr;
+    bool hasValidLeg = false;
+
+    for (const QList<CoordInfo_t>& leg : _transects) {
+        if (leg.size() < 2) {
+            continue;
+        }
+        if (!firstValidLeg) {
+            firstValidLeg = &leg;
+        }
+        hasValidLeg = true;
+    }
+
+    if (firstValidLeg) {
+        // Optional mission metadata marker: derived classes can encode run mode/state here.
+        if (MissionItem* infoScript = _createScriptTimeItem(seqNum, ScriptTimeActionInfo, MAV_FRAME_MISSION, missionItemParent)) {
+            infoScript->setSequenceNumber(seqNum++);
+            items.append(infoScript);
+        }
+
+        // Mission-level spray start command: one command before entering first productive leg.
+        if (MissionItem* startScript = _createScriptTimeItem(seqNum, ScriptTimeActionStart, MAV_FRAME_MISSION, missionItemParent)) {
+            startScript->setSequenceNumber(seqNum++);
+            items.append(startScript);
+        }
+    }
 
     for (const QList<CoordInfo_t>& leg : _transects) {
         if (leg.size() < 2) continue;
 
         // Entry WP
         _appendWaypoint(items, missionItemParent, seqNum, frame, 0 /*hold*/, leg.first().coord);
-        // NAV_SCRIPT_TIME start (if provided by derived class)
-        if (MissionItem* startScript = _createScriptTimeItem(seqNum, ScriptTimeActionStart, MAV_FRAME_MISSION, missionItemParent)) {
-            startScript->setSequenceNumber(seqNum++);
-            items.append(startScript);
-        }
 
         // Exit WP
         _appendWaypoint(items, missionItemParent, seqNum, frame, 0 /*hold*/, leg.last().coord);
+    }
 
-        // NAV_SCRIPT_TIME stop (if provided by derived class)
+    if (hasValidLeg) {
+        // Mission-level spray stop command: one command after the last productive leg.
         if (MissionItem* stopScript = _createScriptTimeItem(seqNum, ScriptTimeActionStop, MAV_FRAME_MISSION, missionItemParent)) {
             stopScript->setSequenceNumber(seqNum++);
             items.append(stopScript);
@@ -1812,6 +1867,7 @@ bool AgriculturalStyleComplexItem::load(const QJsonObject& complexObject, int se
     }
 
     _sequenceNumber = sequenceNumber;
+    _clearLoadedMissionItems();
 
     const QJsonObject inner = complexObject[_jsonKey].toObject();
     const int version = inner.value(JsonHelper::jsonVersionKey).toInt(1);
@@ -1872,6 +1928,7 @@ bool AgriculturalStyleComplexItem::load(const QJsonObject& complexObject, int se
             if (!missionItem->load(missionItemJson.toObject(), 0 /* sequenceNumber */, errorString)) {
                 _loadedMissionItemsParent->deleteLater();
                 _loadedMissionItemsParent = nullptr;
+                _loadedMissionItems.clear();
                 return false;
             }
             _loadedMissionItems.append(missionItem);

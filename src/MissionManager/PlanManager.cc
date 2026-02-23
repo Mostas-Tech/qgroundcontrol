@@ -8,6 +8,19 @@
 
 QGC_LOGGING_CATEGORY(PlanManagerLog, "PlanManager.PlanManager")
 
+namespace {
+// Hardcoded mission protocol target component for companion-computer uploads.
+constexpr uint8_t kMissionTargetComponentId = MAV_COMP_ID_ONBOARD_COMPUTER;
+
+void logMissionMessageRouting(const char *messageName, int sourceSystemId, int sourceComponentId, int targetSystemId, int targetComponentId, MAV_MISSION_TYPE planType)
+{
+    qCDebug(PlanManagerLog) << messageName
+                            << "srcSys:srcComp" << sourceSystemId << sourceComponentId
+                            << "tgtSys:tgtComp" << targetSystemId << targetComponentId
+                            << "missionType" << planType;
+}
+}
+
 PlanManager::PlanManager(Vehicle* vehicle, MAV_MISSION_TYPE planType)
     : QObject                   (vehicle)
     , _vehicle                  (vehicle)
@@ -100,20 +113,25 @@ void PlanManager::_writeMissionCount(void)
 
     SharedLinkInterfacePtr sharedLink = _vehicle->vehicleLinkManager()->primaryLink().lock();
     if (sharedLink) {
+        const int sourceSystemId = MAVLinkProtocol::instance()->getSystemId();
+        const int sourceComponentId = MAVLinkProtocol::getComponentId();
+        const int targetSystemId = _vehicle->id();
+        const int targetComponentId = kMissionTargetComponentId;
         mavlink_message_t       message;
 
         mavlink_msg_mission_count_pack_chan(
-            MAVLinkProtocol::instance()->getSystemId(),
-            MAVLinkProtocol::getComponentId(),
+            sourceSystemId,
+            sourceComponentId,
             sharedLink->mavlinkChannel(),
             &message,
-            _vehicle->id(),
-            MAV_COMP_ID_AUTOPILOT1,
+            targetSystemId,
+            targetComponentId,
             _writeMissionItems.count(),
             _planType,
             0
         );
 
+        logMissionMessageRouting("MISSION_COUNT", sourceSystemId, sourceComponentId, targetSystemId, targetComponentId, _planType);
         _vehicle->sendMessageOnLinkThreadSafe(sharedLink.get(), message);
     }
     _startAckTimeout(AckMissionRequest);
@@ -148,15 +166,20 @@ void PlanManager::_requestList(void)
 
     SharedLinkInterfacePtr  sharedLink = _vehicle->vehicleLinkManager()->primaryLink().lock();
     if (sharedLink){
+        const int sourceSystemId = MAVLinkProtocol::instance()->getSystemId();
+        const int sourceComponentId = MAVLinkProtocol::getComponentId();
+        const int targetSystemId = _vehicle->id();
+        const int targetComponentId = kMissionTargetComponentId;
         mavlink_message_t       message;
-        mavlink_msg_mission_request_list_pack_chan(MAVLinkProtocol::instance()->getSystemId(),
-                                                   MAVLinkProtocol::getComponentId(),
+        mavlink_msg_mission_request_list_pack_chan(sourceSystemId,
+                                                   sourceComponentId,
                                                    sharedLink->mavlinkChannel(),
                                                    &message,
-                                                   _vehicle->id(),
-                                                   MAV_COMP_ID_AUTOPILOT1,
+                                                   targetSystemId,
+                                                   targetComponentId,
                                                    _planType);
 
+        logMissionMessageRouting("MISSION_REQUEST_LIST", sourceSystemId, sourceComponentId, targetSystemId, targetComponentId, _planType);
         _vehicle->sendMessageOnLinkThreadSafe(sharedLink.get(), message);
     }
     _startAckTimeout(AckMissionCount);
@@ -243,6 +266,7 @@ void PlanManager::_startAckTimeout(AckType_t ack)
     // Use much shorter timeouts in unit tests since MockLink responds instantly
     const int retryTimeout = qgcApp()->runningUnitTests() ? 10 : _retryTimeoutMilliseconds;
     const int ackTimeout = qgcApp()->runningUnitTests() ? kTestAckTimeoutMs : _ackTimeoutMilliseconds;
+    const int finalAckTimeout = qgcApp()->runningUnitTests() ? kTestAckTimeoutMs : _finalAckTimeoutMilliseconds;
 
     switch (ack) {
     case AckMissionItem:
@@ -254,7 +278,9 @@ void PlanManager::_startAckTimeout(AckType_t ack)
     case AckMissionCount:
         // FALLTHROUGH
     case AckMissionRequest:
-        // FALLTHROUGH
+        // If all mission items are already sent, wait longer for final MISSION_ACK.
+        _ackTimeoutTimer->setInterval((ack == AckMissionRequest && _itemIndicesToWrite.isEmpty()) ? finalAckTimeout : ackTimeout);
+        break;
     case AckMissionClearAll:
         // FALLTHROUGH
     case AckGuidedItem:
@@ -293,20 +319,25 @@ void PlanManager::_readTransactionComplete(void)
 
     SharedLinkInterfacePtr sharedLink = _vehicle->vehicleLinkManager()->primaryLink().lock();
     if (sharedLink) {
+        const int sourceSystemId = MAVLinkProtocol::instance()->getSystemId();
+        const int sourceComponentId = MAVLinkProtocol::getComponentId();
+        const int targetSystemId = _vehicle->id();
+        const int targetComponentId = kMissionTargetComponentId;
         mavlink_message_t       message;
 
         mavlink_msg_mission_ack_pack_chan(
-            MAVLinkProtocol::instance()->getSystemId(),
-            MAVLinkProtocol::getComponentId(),
+            sourceSystemId,
+            sourceComponentId,
             sharedLink->mavlinkChannel(),
             &message,
-            _vehicle->id(),
-            MAV_COMP_ID_AUTOPILOT1,
+            targetSystemId,
+            targetComponentId,
             MAV_MISSION_ACCEPTED,
             _planType,
             0
         );
 
+        logMissionMessageRouting("MISSION_ACK", sourceSystemId, sourceComponentId, targetSystemId, targetComponentId, _planType);
         _vehicle->sendMessageOnLinkThreadSafe(sharedLink.get(), message);
     }
 
@@ -357,16 +388,21 @@ void PlanManager::_requestNextMissionItem(void)
 
     SharedLinkInterfacePtr sharedLink = _vehicle->vehicleLinkManager()->primaryLink().lock();
     if (sharedLink) {
+        const int sourceSystemId = MAVLinkProtocol::instance()->getSystemId();
+        const int sourceComponentId = MAVLinkProtocol::getComponentId();
+        const int targetSystemId = _vehicle->id();
+        const int targetComponentId = kMissionTargetComponentId;
         mavlink_message_t       message;
 
-        mavlink_msg_mission_request_int_pack_chan(MAVLinkProtocol::instance()->getSystemId(),
-                                                  MAVLinkProtocol::getComponentId(),
+        mavlink_msg_mission_request_int_pack_chan(sourceSystemId,
+                                                  sourceComponentId,
                                                   sharedLink->mavlinkChannel(),
                                                   &message,
-                                                  _vehicle->id(),
-                                                  MAV_COMP_ID_AUTOPILOT1,
+                                                  targetSystemId,
+                                                  targetComponentId,
                                                   _itemIndicesToRead[0],
                                                   _planType);
+        logMissionMessageRouting("MISSION_REQUEST_INT", sourceSystemId, sourceComponentId, targetSystemId, targetComponentId, _planType);
         _vehicle->sendMessageOnLinkThreadSafe(sharedLink.get(), message);
     }
     _startAckTimeout(AckMissionItem);
@@ -526,14 +562,18 @@ void PlanManager::_handleMissionRequest(const mavlink_message_t& message)
 
     SharedLinkInterfacePtr sharedLink = _vehicle->vehicleLinkManager()->primaryLink().lock();
     if (sharedLink) {
+        const int sourceSystemId = MAVLinkProtocol::instance()->getSystemId();
+        const int sourceComponentId = MAVLinkProtocol::getComponentId();
+        const int targetSystemId = _vehicle->id();
+        const int targetComponentId = kMissionTargetComponentId;
         mavlink_message_t       messageOut;
 
-        mavlink_msg_mission_item_int_pack_chan(MAVLinkProtocol::instance()->getSystemId(),
-                                               MAVLinkProtocol::getComponentId(),
+        mavlink_msg_mission_item_int_pack_chan(sourceSystemId,
+                                               sourceComponentId,
                                                sharedLink->mavlinkChannel(),
                                                &messageOut,
-                                               _vehicle->id(),
-                                               MAV_COMP_ID_AUTOPILOT1,
+                                               targetSystemId,
+                                               targetComponentId,
                                                missionRequestSeq,
                                                item->frame(),
                                                item->command(),
@@ -547,6 +587,7 @@ void PlanManager::_handleMissionRequest(const mavlink_message_t& message)
                                                item->frame() == MAV_FRAME_MISSION ? item->param6() : item->param6() * 1e7,
                                                item->param7(),
                                                _planType);
+        logMissionMessageRouting("MISSION_ITEM_INT", sourceSystemId, sourceComponentId, targetSystemId, targetComponentId, _planType);
         _vehicle->sendMessageOnLinkThreadSafe(sharedLink.get(), messageOut);
     }
     _startAckTimeout(AckMissionRequest);
@@ -876,15 +917,20 @@ void PlanManager::_removeAllWorker(void)
 
     SharedLinkInterfacePtr sharedLink = _vehicle->vehicleLinkManager()->primaryLink().lock();
     if (sharedLink) {
+        const int sourceSystemId = MAVLinkProtocol::instance()->getSystemId();
+        const int sourceComponentId = MAVLinkProtocol::getComponentId();
+        const int targetSystemId = _vehicle->id();
+        const int targetComponentId = kMissionTargetComponentId;
         mavlink_message_t       message;
 
-        mavlink_msg_mission_clear_all_pack_chan(MAVLinkProtocol::instance()->getSystemId(),
-                                                MAVLinkProtocol::getComponentId(),
+        mavlink_msg_mission_clear_all_pack_chan(sourceSystemId,
+                                                sourceComponentId,
                                                 sharedLink->mavlinkChannel(),
                                                 &message,
-                                                _vehicle->id(),
-                                                MAV_COMP_ID_AUTOPILOT1,
+                                                targetSystemId,
+                                                targetComponentId,
                                                 _planType);
+        logMissionMessageRouting("MISSION_CLEAR_ALL", sourceSystemId, sourceComponentId, targetSystemId, targetComponentId, _planType);
         _vehicle->sendMessageOnLinkThreadSafe(sharedLink.get(), message);
     }
     _startAckTimeout(AckMissionClearAll);

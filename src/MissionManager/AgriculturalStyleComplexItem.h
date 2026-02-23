@@ -88,6 +88,8 @@ public:
     Fact* fixedSpeed()    { return &_fixedSpeedFact; }
     Fact* pesticideLitersPerDekar() { return &_pesticideLitersPerDekarFact; }
     Fact* pesticideDropletSize()    { return &_pesticideDropletSizeFact; }
+    const Fact* pesticideLitersPerDekar() const { return &_pesticideLitersPerDekarFact; }
+    const Fact* pesticideDropletSize() const    { return &_pesticideDropletSizeFact; }
     Fact* spraySpeedProfile()       { return &_spraySpeedProfileFact; }
     double recommendedVehicleSpeed() const { return _recommendedVehicleSpeed; }
     double recommendedFlowRate() const { return _recommendedFlowRate; }
@@ -173,6 +175,7 @@ public:
     enum ScriptTimeAction {
         ScriptTimeActionStart = 20,  ///< 20/21 to avoid collision with calibration/test (10/11/12)
         ScriptTimeActionStop  = 21,
+        ScriptTimeActionInfo  = 22,  ///< for optional info-only item (no start/stop behavior) if needed by derived classes
     };
 
 signals:
@@ -220,9 +223,11 @@ protected:
     QList<QLineF> _generateParallelLines(const QPolygonF& area, double spacingMeters, double angleDeg) const; // centerlines before clipping
     QList<QList<CoordInfo_t>> _clipLinesToPolygon(const QList<QLineF>& lines, const QPolygonF& area) const;
     QList<QList<CoordInfo_t>> _orderLegsEntryFirst(const QList<QList<CoordInfo_t>>& legs) const; // honors entryLocation; no zigzag
+    void _clearLoadedMissionItems();
+    bool _shouldUseLoadedMissionItems() const;
     virtual MissionItem* _createScriptTimeItem(int sequenceNumber, int action, MAV_FRAME frame,
                                                QObject* missionItemParent) const;
-    virtual int _scriptTimeItemCountPerLeg() const { return 0; }
+    virtual int _scriptTimeItemCountForMission() const { return 0; }
 
 protected slots:
     void _polyChanged();

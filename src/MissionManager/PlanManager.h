@@ -60,6 +60,8 @@ public:
     // These values are public so the unit test can set appropriate signal wait times
     // When passively waiting for a mission process, use a longer timeout.
     static constexpr int _ackTimeoutMilliseconds = 1500;
+    // Final MISSION_ACK after the last mission item can arrive later on high-latency links.
+    static constexpr int _finalAckTimeoutMilliseconds = 10000;
     // When actively retrying to request mission items, use a shorter timeout instead.
     static constexpr int _retryTimeoutMilliseconds = 250;
     static constexpr int _maxRetryCount = 5;

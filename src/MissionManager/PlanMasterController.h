@@ -155,6 +155,7 @@ private:
     bool                    _loadRallyPoints =          false;
     bool                    _sendGeoFence =             false;
     bool                    _sendRallyPoints =          false;
+    bool                    _fetchMissionFromVehicleOnSendComplete = false;
     QString                 _currentPlanFile;
     bool                    _deleteWhenSendCompleted =  false;
     bool                    _previousOverallDirty =     false;

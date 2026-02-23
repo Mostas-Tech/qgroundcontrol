@@ -9,6 +9,26 @@
 
 QGC_LOGGING_CATEGORY(MissionManagerLog, "PlanManager.MissionManager")
 
+namespace {
+
+constexpr double kScriptTimeActionInfo = 22.0;
+constexpr double kScriptTimeResumeState = 1.0;
+
+bool isScriptTimeInfoMissionItem(const MissionItem* missionItem)
+{
+    if (!missionItem || missionItem->command() != MAV_CMD_NAV_SCRIPT_TIME) {
+        return false;
+    }
+
+    return missionItem->param1() == kScriptTimeActionInfo &&
+           missionItem->param3() == 0.0 &&
+           missionItem->param4() == 0.0 &&
+           missionItem->param5() == 0.0 &&
+           missionItem->param6() == 0.0;
+}
+
+} // namespace
+
 MissionManager::MissionManager(Vehicle* vehicle)
     : PlanManager               (vehicle, MAV_MISSION_TYPE_MISSION)
     , _cachedLastCurrentIndex   (-1)
@@ -120,11 +140,13 @@ void MissionManager::generateResumeMission(int resumeIndex)
                            << MAV_CMD_VIDEO_START_CAPTURE
                            << MAV_CMD_VIDEO_STOP_CAPTURE
                            << MAV_CMD_DO_CHANGE_SPEED
-                           << MAV_CMD_SET_CAMERA_MODE;
+                           << MAV_CMD_SET_CAMERA_MODE
+                           << MAV_CMD_NAV_SCRIPT_TIME;
 
     bool addHomePosition = _vehicle->firmwarePlugin()->sendHomePositionToVehicle();
 
     int prefixCommandCount = 0;
+    bool resumeStateEncoded = false;
     for (int i=0; i<_missionItems.count(); i++) {
         MissionItem* oldItem = _missionItems[i];
         const MissionCommandUIInfo* loopUiInfo = MissionCommandTree::instance()->getUIInfo(_vehicle, _vehicle->vehicleClass(), oldItem->command());
@@ -133,6 +155,11 @@ void MissionManager::generateResumeMission(int resumeIndex)
                 prefixCommandCount++;
             }
             MissionItem* newItem = new MissionItem(*oldItem, this);
+            if (isScriptTimeInfoMissionItem(newItem) && (i < resumeIndex || !resumeStateEncoded)) {
+                // Encode "resume mission" on the info marker only. Normal mission start keeps param2 = 0.
+                newItem->setParam2(kScriptTimeResumeState);
+                resumeStateEncoded = true;
+            }
             newItem->setIsCurrentItem(false);
             resumeMission.append(newItem);
         }

@@ -69,6 +69,117 @@ const QString kCatalogDirectoryName = QStringLiteral("FarmFields");
 const QString kFieldsDirectoryName = QStringLiteral("fields");
 const QString kJobsDirectoryName = QStringLiteral("jobs");
 
+constexpr double kScriptTimeActionInfo = 22.0;
+constexpr double kScriptTimeResumeState = 1.0;
+constexpr const char* kJsonVisualItemTypeKey = "type";
+constexpr const char* kJsonVisualComplexItemTypeValue = "ComplexItem";
+constexpr const char* kJsonComplexItemTypeKey = "complexItemType";
+constexpr const char* kJsonSprayComplexItemTypeValue = "spray";
+constexpr const char* kJsonSprayScriptTimeInfoModeKey = "scriptTimeInfoMode";
+
+bool doubleNearEqual(double lhs, double rhs)
+{
+    return qAbs(lhs - rhs) < 1e-6;
+}
+
+bool isScriptTimeInfoMissionItemJson(const QJsonObject& missionItemJson)
+{
+    if (!missionItemJson.contains(QStringLiteral("command")) || !missionItemJson.contains(QStringLiteral("params"))) {
+        return false;
+    }
+
+    const int command = missionItemJson.value(QStringLiteral("command")).toInt(-1);
+    if (command != static_cast<int>(MAV_CMD_NAV_SCRIPT_TIME)) {
+        return false;
+    }
+
+    const QJsonArray params = missionItemJson.value(QStringLiteral("params")).toArray();
+    if (params.size() < 6) {
+        return false;
+    }
+
+    const double param1 = params[0].toDouble();
+    const double param3 = params[2].toDouble();
+    const double param4 = params[3].toDouble();
+    const double param5 = params[4].toDouble();
+    const double param6 = params[5].toDouble();
+
+    return doubleNearEqual(param1, kScriptTimeActionInfo) &&
+           doubleNearEqual(param3, 0.0) &&
+           doubleNearEqual(param4, 0.0) &&
+           doubleNearEqual(param5, 0.0) &&
+           doubleNearEqual(param6, 0.0);
+}
+
+bool rewriteScriptTimeInfoModeInObject(QJsonObject& jsonObject, bool resumeUpload);
+
+bool rewriteScriptTimeInfoModeInArray(QJsonArray& jsonArray, bool resumeUpload)
+{
+    bool changed = false;
+
+    for (int i = 0; i < jsonArray.size(); ++i) {
+        QJsonValue value = jsonArray.at(i);
+        if (value.isObject()) {
+            QJsonObject childObject = value.toObject();
+            if (rewriteScriptTimeInfoModeInObject(childObject, resumeUpload)) {
+                jsonArray[i] = childObject;
+                changed = true;
+            }
+        } else if (value.isArray()) {
+            QJsonArray childArray = value.toArray();
+            if (rewriteScriptTimeInfoModeInArray(childArray, resumeUpload)) {
+                jsonArray[i] = childArray;
+                changed = true;
+            }
+        }
+    }
+
+    return changed;
+}
+
+bool rewriteScriptTimeInfoModeInObject(QJsonObject& jsonObject, bool resumeUpload)
+{
+    bool changed = false;
+    const double targetMode = resumeUpload ? kScriptTimeResumeState : 0.0;
+
+    // Keep an explicit mode marker on Spray complex item objects so regenerated missions
+    // can still emit the correct ScriptTime info param2.
+    if (jsonObject.value(QString::fromUtf8(kJsonVisualItemTypeKey)).toString() == QString::fromUtf8(kJsonVisualComplexItemTypeValue) &&
+            jsonObject.value(QString::fromUtf8(kJsonComplexItemTypeKey)).toString() == QString::fromUtf8(kJsonSprayComplexItemTypeValue)) {
+        if (!doubleNearEqual(jsonObject.value(QString::fromUtf8(kJsonSprayScriptTimeInfoModeKey)).toDouble(), targetMode)) {
+            jsonObject[QString::fromUtf8(kJsonSprayScriptTimeInfoModeKey)] = targetMode;
+            changed = true;
+        }
+    }
+
+    if (isScriptTimeInfoMissionItemJson(jsonObject)) {
+        QJsonArray params = jsonObject.value(QStringLiteral("params")).toArray();
+        if (!doubleNearEqual(params[1].toDouble(), targetMode)) {
+            params[1] = targetMode;
+            jsonObject[QStringLiteral("params")] = params;
+            changed = true;
+        }
+    }
+
+    for (auto it = jsonObject.begin(); it != jsonObject.end(); ++it) {
+        if (it->isObject()) {
+            QJsonObject childObject = it->toObject();
+            if (rewriteScriptTimeInfoModeInObject(childObject, resumeUpload)) {
+                it.value() = childObject;
+                changed = true;
+            }
+        } else if (it->isArray()) {
+            QJsonArray childArray = it->toArray();
+            if (rewriteScriptTimeInfoModeInArray(childArray, resumeUpload)) {
+                it.value() = childArray;
+                changed = true;
+            }
+        }
+    }
+
+    return changed;
+}
+
 QDateTime parseUtcTime(const QString& utcText)
 {
     QDateTime parsed = QDateTime::fromString(utcText, Qt::ISODateWithMs);
@@ -818,7 +929,7 @@ void FieldJobCatalogManager::startJob(const QString& jobId)
         return;
     }
 
-    if (!_startJobUpload(job, errorString)) {
+    if (!_startJobUpload(job, false /* resumeUpload */, errorString)) {
         _setLastError(errorString);
         emit jobUploadFailed(jobId, errorString);
         return;
@@ -831,13 +942,13 @@ void FieldJobCatalogManager::resumeJob(const QString& jobId, bool missionIncompl
 {
     JobRecord job;
     QString errorString;
-    if (!_validateUploadRequest(jobId, true /* requireMissionIncomplete */, missionIncomplete, job, errorString)) {
+    if (!_validateUploadRequest(jobId, false /* requireMissionIncomplete */, missionIncomplete, job, errorString)) {
         _setLastError(errorString);
         emit jobUploadFailed(jobId, errorString);
         return;
     }
 
-    if (!_startJobUpload(job, errorString)) {
+    if (!_startJobUpload(job, true /* resumeUpload */, errorString)) {
         _setLastError(errorString);
         emit jobUploadFailed(jobId, errorString);
         return;
@@ -891,7 +1002,7 @@ bool FieldJobCatalogManager::_validateUploadRequest(const QString& jobId, bool r
     return true;
 }
 
-bool FieldJobCatalogManager::_startJobUpload(const JobRecord& job, QString& errorString)
+bool FieldJobCatalogManager::_startJobUpload(const JobRecord& job, bool resumeUpload, QString& errorString)
 {
     Vehicle* const activeVehicle = MultiVehicleManager::instance()->activeVehicle();
     if (!activeVehicle || !activeVehicle->missionManager()) {
@@ -899,7 +1010,7 @@ bool FieldJobCatalogManager::_startJobUpload(const JobRecord& job, QString& erro
         return false;
     }
 
-    if (!_syncJobPlanGeoFenceFromCatalog(job, errorString)) {
+    if (!_syncJobPlanGeoFenceFromCatalog(job, resumeUpload, errorString)) {
         return false;
     }
 
@@ -1425,7 +1536,7 @@ bool FieldJobCatalogManager::_writeDefaultJobPlanFile(const QString& filePath, Q
     return true;
 }
 
-bool FieldJobCatalogManager::_syncJobPlanGeoFenceFromCatalog(const JobRecord& job, QString& errorString) const
+bool FieldJobCatalogManager::_syncJobPlanGeoFenceFromCatalog(const JobRecord& job, bool resumeUpload, QString& errorString) const
 {
     if (job.planFilePath.isEmpty()) {
         errorString = tr("Job plan file path is empty.");
@@ -1470,9 +1581,15 @@ bool FieldJobCatalogManager::_syncJobPlanGeoFenceFromCatalog(const JobRecord& jo
     geoFenceJson[QStringLiteral("polygons")] = polygonsJson;
     planJson[QStringLiteral("geoFence")] = geoFenceJson;
 
+    const bool modeMarkerUpdated = rewriteScriptTimeInfoModeInObject(planJson, resumeUpload);
+    qCDebug(FieldJobCatalogManagerLog) << "Prepared job plan upload mode:"
+                                       << (resumeUpload ? "resume" : "restart")
+                                       << "script-info marker updated:" << modeMarkerUpdated
+                                       << "jobId:" << job.id;
+
     const QByteArray planBytes = QJsonDocument(planJson).toJson(QJsonDocument::Indented);
     if (!QGCFileHelper::atomicWrite(job.planFilePath, planBytes)) {
-        errorString = tr("Failed to update job plan geofence: %1").arg(job.planFilePath);
+        errorString = tr("Failed to update job plan before upload: %1").arg(job.planFilePath);
         return false;
     }
 

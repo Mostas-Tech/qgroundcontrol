@@ -355,7 +355,7 @@ Item {
 
                                         QGCButton {
                                             text: qsTr("Resume")
-                                            enabled: !jobEntry.needsRegeneration && root._missionIncomplete && !root._uploadInProgress
+                                            enabled: !jobEntry.needsRegeneration && !root._uploadInProgress
                                             onClicked: catalogManager.resumeJob(jobEntry.id, root._missionIncomplete)
                                         }
                                     }

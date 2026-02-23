@@ -138,10 +138,10 @@ private:
     int _findFieldRevision(const QString& fieldId) const;
     bool _removeFileIfExists(const QString& filePath, QString& errorString) const;
     bool _writeDefaultJobPlanFile(const QString& filePath, QString& errorString) const;
-    bool _syncJobPlanGeoFenceFromCatalog(const JobRecord& job, QString& errorString) const;
+    bool _syncJobPlanGeoFenceFromCatalog(const JobRecord& job, bool resumeUpload, QString& errorString) const;
     bool _validateUploadRequest(const QString& jobId, bool requireMissionIncomplete, bool missionIncomplete,
                                 JobRecord& outJob, QString& errorString) const;
-    bool _startJobUpload(const JobRecord& job, QString& errorString);
+    bool _startJobUpload(const JobRecord& job, bool resumeUpload, QString& errorString);
     void _clearUploadState();
 
     void _setActiveFieldId(const QString& fieldId);

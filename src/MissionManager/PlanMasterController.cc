@@ -295,6 +295,11 @@ void PlanMasterController::_sendGeoFenceComplete(void)
 void PlanMasterController::_sendRallyPointsComplete(void)
 {
     qCDebug(PlanMasterControllerLog) << "PlanMasterController::sendToVehicle Rally Point send complete";
+    if (_fetchMissionFromVehicleOnSendComplete && _managerVehicle && _managerVehicle->missionManager()) {
+        qCDebug(PlanMasterControllerLog) << "PlanMasterController::sendToVehicle fetching mission from vehicle after upload completion";
+        _fetchMissionFromVehicleOnSendComplete = false;
+        _managerVehicle->missionManager()->loadFromVehicle();
+    }
     if (_deleteWhenSendCompleted) {
         this->deleteLater();
     }
@@ -570,7 +575,11 @@ void PlanMasterController::sendPlanToVehicle(Vehicle* vehicle, const QString& fi
     // Use a transient PlanMasterController to accomplish this
     PlanMasterController* controller = new PlanMasterController();
     controller->startStaticActiveVehicle(vehicle, true /* deleteWhenSendCompleted */);
+    controller->_fetchMissionFromVehicleOnSendComplete = true;
     controller->loadFromFile(filename);
+    // Direct file upload should preserve loaded mission-item snapshots from the plan file.
+    // Keeping the controller clean avoids ComplexItem regeneration which can rewrite mission params.
+    controller->setDirty(false);
     controller->sendToVehicle();
 }
 

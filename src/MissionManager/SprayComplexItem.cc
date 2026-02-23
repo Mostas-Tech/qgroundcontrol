@@ -14,24 +14,24 @@ QGC_LOGGING_CATEGORY(SprayComplexItemLog, "qgc.missionmanager.spray")
 const QString SprayComplexItem::name(QStringLiteral("Spray"));
 
 namespace {
-constexpr float kScriptMsgPumpPct     = 75.0f;  // hard-coded first pass (ignores UI for now)
-constexpr float kScriptMsgNozzlePct   = 75.0f;  // hard-coded first pass (ignores UI for now)
-constexpr float kScriptMsgFlowLpm     = 0.0f;   // reserved for future
-constexpr float kScriptMsgFlags       = 0.0f;   // reserved for future bitmask
+constexpr float kScriptTimeTimeoutSec = 0.0f;  // 0 => no timeout
+constexpr float kScriptArgPumpPct     = 75.0f; // param3 hint for script
+constexpr float kScriptArgNozzlePct   = 75.0f; // param4 hint for script
+constexpr float kScriptArgFlags       = 0.0f;  // param6 reserved
 } // namespace
 
 SprayComplexItem::SprayComplexItem(PlanMasterController* masterController, bool flyView)
     : AgriculturalStyleComplexItem(masterController, flyView)
 {
     _editorQml = "qrc:/qml/QGroundControl/Controls/SprayItemEditor.qml";
-   // Spray-only Facts (rate, droplet) and SCRIPT_TIME injection will be added later.
+    // Spray-only Facts (rate, droplet) and script-time behavior can be added here.
 }
 
 void SprayComplexItem::appendMissionItems(QList<MissionItem*>& items, QObject* missionItemParent)
 {
     // Keep base save/load behavior:
     // - If mission items were loaded from plan snapshot, reuse them exactly.
-    // - Otherwise build waypoints/scripts from current transects.
+    // - Otherwise build waypoints/script-time commands from current transects.
     AgriculturalStyleComplexItem::appendMissionItems(items, missionItemParent);
 }
 
@@ -40,22 +40,55 @@ MissionItem* SprayComplexItem::_createScriptTimeItem(int sequenceNumber, int act
 {
     Q_UNUSED(frame);
 
-    if (action != ScriptTimeActionStart && action != ScriptTimeActionStop) {
+    if (action != ScriptTimeActionStart && action != ScriptTimeActionStop && action != ScriptTimeActionInfo) {
         return nullptr;
     }
 
+    float param1 = static_cast<float>(action);
+    float param2 = kScriptTimeTimeoutSec;
+    float param3 = 0.0f;
+    float param4 = 0.0f;
+    float param5 = 0.0f;
+    float param6 = 0.0f;
+
+    if (action == ScriptTimeActionStart) {
+        // Requested mapping for START marker:
+        // param1 = droplet size, param2 = liters/dekar.
+        const double dropletSize = pesticideDropletSize()->rawValue().toDouble();
+        const double litersPerDekar = pesticideLitersPerDekar()->rawValue().toDouble();
+        param1 = static_cast<float>(dropletSize);
+        param2 = static_cast<float>(litersPerDekar);
+
+        // Keep start action and hints in later params so script side can still disambiguate.
+        param3 = static_cast<float>(ScriptTimeActionStart);
+        param4 = kScriptArgPumpPct;
+        param5 = kScriptArgNozzlePct;
+        param6 = kScriptArgFlags;
+    }
+    else if (action == ScriptTimeActionInfo) {
+        // Info-only action:
+        // param2 carries dynamic mission mode set on upload path:
+        // 0 = normal start/restart, 1 = resume.
+        param1 = static_cast<float>(ScriptTimeActionInfo);
+        param2 = static_cast<float>(_scriptTimeInfoMode > 0.5 ? 1.0 : 0.0);
+        param3 = 0.0f;
+        param4 = 0.0f;
+        param5 = 0.0f;
+        param6 = 0.0f;
+    }
+
     return new MissionItem(sequenceNumber,
-                           MAV_CMD_DO_SEND_SCRIPT_MESSAGE,
+                           MAV_CMD_NAV_SCRIPT_TIME,
                            MAV_FRAME_MISSION,
-                           action,                     // param1: script action (20=start, 21=stop)
-                           kScriptMsgPumpPct,          // param2: pump percent
-                           kScriptMsgNozzlePct,        // param3: nozzle percent
-                           kScriptMsgFlowLpm,          // param4: reserved (flow L/min)
-                           0.0,                        // param5: EMPTY
-                           0.0,                        // param6: EMPTY
-                           0.0,                        // param7: EMPTY
-                           true,                       // autoContinue
-                           false,                      // isCurrentItem
+                           param1,
+                           param2,
+                           param3,
+                           param4,
+                           param5,
+                           param6,
+                           0.0,                     // param7: EMPTY
+                           true,                    // autoContinue
+                           false,                   // isCurrentItem
                            missionItemParent);
 }
 
@@ -87,6 +120,9 @@ bool SprayComplexItem::load(const QJsonObject& itemObject, int sequenceNumber, Q
 {
     // Expecting V2 shape:
     // { "type":"ComplexItem", "complexItemType":"spray", "complexItem": { "AgriculturalStyleComplexItem": { ... } } }
+    _scriptTimeInfoMode = itemObject.value(QString::fromLatin1(jsonScriptTimeInfoModeKey)).toDouble(0.0) > 0.5 ? 1.0 : 0.0;
+    qCDebug(SprayComplexItemLog) << "Spray load scriptTimeInfoMode:" << _scriptTimeInfoMode;
+
     if (!itemObject.contains(QStringLiteral("complexItem")) || !itemObject.value(QStringLiteral("complexItem")).isObject()) {
         errorString = tr("Spray: missing complexItem object");
         return false;

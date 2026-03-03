@@ -71,6 +71,7 @@ const QString kJobsDirectoryName = QStringLiteral("jobs");
 
 constexpr double kScriptTimeActionInfo = 22.0;
 constexpr double kScriptTimeResumeState = 1.0;
+constexpr int kMavCmdDoSpraySettings = 42711;
 constexpr const char* kJsonVisualItemTypeKey = "type";
 constexpr const char* kJsonVisualComplexItemTypeValue = "ComplexItem";
 constexpr const char* kJsonComplexItemTypeKey = "complexItemType";
@@ -109,6 +110,31 @@ bool isScriptTimeInfoMissionItemJson(const QJsonObject& missionItemJson)
            doubleNearEqual(param4, 0.0) &&
            doubleNearEqual(param5, 0.0) &&
            doubleNearEqual(param6, 0.0);
+}
+
+bool rewriteSpraySettingsModeInMissionItemJson(QJsonObject& missionItemJson, bool resumeUpload)
+{
+    if (!missionItemJson.contains(QStringLiteral("command")) || !missionItemJson.contains(QStringLiteral("params"))) {
+        return false;
+    }
+
+    if (missionItemJson.value(QStringLiteral("command")).toInt(-1) != kMavCmdDoSpraySettings) {
+        return false;
+    }
+
+    QJsonArray params = missionItemJson.value(QStringLiteral("params")).toArray();
+    if (params.size() < 3) {
+        return false;
+    }
+
+    const double targetMode = resumeUpload ? kScriptTimeResumeState : 0.0;
+    if (doubleNearEqual(params[2].toDouble(), targetMode)) {
+        return false;
+    }
+
+    params[2] = targetMode;
+    missionItemJson[QStringLiteral("params")] = params;
+    return true;
 }
 
 bool rewriteScriptTimeInfoModeInObject(QJsonObject& jsonObject, bool resumeUpload);
@@ -159,6 +185,10 @@ bool rewriteScriptTimeInfoModeInObject(QJsonObject& jsonObject, bool resumeUploa
             jsonObject[QStringLiteral("params")] = params;
             changed = true;
         }
+    }
+
+    if (rewriteSpraySettingsModeInMissionItemJson(jsonObject, resumeUpload)) {
+        changed = true;
     }
 
     for (auto it = jsonObject.begin(); it != jsonObject.end(); ++it) {

@@ -13,6 +13,7 @@ namespace {
 
 constexpr double kScriptTimeActionInfo = 22.0;
 constexpr double kScriptTimeResumeState = 1.0;
+constexpr int kMavCmdDoSpraySettings = 42711;
 
 bool isScriptTimeInfoMissionItem(const MissionItem* missionItem)
 {
@@ -25,6 +26,11 @@ bool isScriptTimeInfoMissionItem(const MissionItem* missionItem)
            missionItem->param4() == 0.0 &&
            missionItem->param5() == 0.0 &&
            missionItem->param6() == 0.0;
+}
+
+bool isSpraySettingsMissionItem(const MissionItem* missionItem)
+{
+    return missionItem && missionItem->command() == static_cast<MAV_CMD>(kMavCmdDoSpraySettings);
 }
 
 } // namespace
@@ -141,7 +147,8 @@ void MissionManager::generateResumeMission(int resumeIndex)
                            << MAV_CMD_VIDEO_STOP_CAPTURE
                            << MAV_CMD_DO_CHANGE_SPEED
                            << MAV_CMD_SET_CAMERA_MODE
-                           << MAV_CMD_NAV_SCRIPT_TIME;
+                           << MAV_CMD_NAV_SCRIPT_TIME
+                           << static_cast<MAV_CMD>(kMavCmdDoSpraySettings);
 
     bool addHomePosition = _vehicle->firmwarePlugin()->sendHomePositionToVehicle();
 
@@ -158,6 +165,11 @@ void MissionManager::generateResumeMission(int resumeIndex)
             if (isScriptTimeInfoMissionItem(newItem) && (i < resumeIndex || !resumeStateEncoded)) {
                 // Encode "resume mission" on the info marker only. Normal mission start keeps param2 = 0.
                 newItem->setParam2(kScriptTimeResumeState);
+                resumeStateEncoded = true;
+            } else if (isSpraySettingsMissionItem(newItem) && (i < resumeIndex || !resumeStateEncoded)) {
+                // SkyFarmer spray settings marker uses param3 for restart/resume mode.
+                // 0 = restart, 1 = resume.
+                newItem->setParam3(kScriptTimeResumeState);
                 resumeStateEncoded = true;
             }
             newItem->setIsCurrentItem(false);

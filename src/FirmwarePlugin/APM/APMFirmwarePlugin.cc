@@ -535,6 +535,7 @@ QList<MAV_CMD> APMFirmwarePlugin::supportedMissionCommands(QGCMAVLink::VehicleCl
 {
     QList<MAV_CMD> supportedCommands = {
         MAV_CMD_NAV_WAYPOINT,
+        static_cast<MAV_CMD>(42710), // MAV_CMD_NAV_SPRAY_WAYPOINT (SkyFarmer)
         MAV_CMD_NAV_LOITER_UNLIM, MAV_CMD_NAV_LOITER_TURNS, MAV_CMD_NAV_LOITER_TIME,
         MAV_CMD_NAV_RETURN_TO_LAUNCH,
         MAV_CMD_NAV_CONTINUE_AND_CHANGE_ALT,
@@ -561,6 +562,7 @@ QList<MAV_CMD> APMFirmwarePlugin::supportedMissionCommands(QGCMAVLink::VehicleCl
         MAV_CMD_DO_GRIPPER,
         MAV_CMD_DO_GUIDED_LIMITS,
         MAV_CMD_DO_AUTOTUNE_ENABLE,
+        static_cast<MAV_CMD>(42711), // MAV_CMD_DO_SPRAY_SETTINGS (SkyFarmer)
     };
 
     QList<MAV_CMD> vtolCommands = {

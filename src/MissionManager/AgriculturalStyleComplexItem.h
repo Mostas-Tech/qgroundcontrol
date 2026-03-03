@@ -215,7 +215,8 @@ protected:
     // Builders
     void _buildAndAppendMissionItems(QList<MissionItem*>& items, QObject* missionItemParent);
     void _appendWaypoint(QList<MissionItem*>& items, QObject* missionItemParent, int& seqNum,
-                         MAV_FRAME mavFrame, float holdTime, const QGeoCoordinate& coordinate);
+                         MAV_FRAME mavFrame, float holdTime, const QGeoCoordinate& coordinate,
+                         MAV_CMD command = MAV_CMD_NAV_WAYPOINT);
     void _appendLoadedMissionItems(QList<MissionItem*>& items, QObject* missionItemParent);
     void _applyPesticideCalculations();
 
@@ -228,6 +229,7 @@ protected:
     virtual MissionItem* _createScriptTimeItem(int sequenceNumber, int action, MAV_FRAME frame,
                                                QObject* missionItemParent) const;
     virtual int _scriptTimeItemCountForMission() const { return 0; }
+    virtual MAV_CMD _exitWaypointCommand() const { return MAV_CMD_NAV_WAYPOINT; }
 
 protected slots:
     void _polyChanged();

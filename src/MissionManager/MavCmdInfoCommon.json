@@ -69,6 +69,50 @@
             }
         },
         {
+            "id":                   42710,
+            "rawName":              "MAV_CMD_NAV_SPRAY_WAYPOINT",
+            "friendlyName":         "Spray waypoint",
+            "description":          "SkyFarmer spray-run waypoint marker. Converted to NAV_WAYPOINT by the SkyFarmer bridge before vehicle upload.",
+            "specifiesCoordinate":  true,
+            "friendlyEdit":         true,
+            "category":             "Basic",
+            "param1": {
+                "label":            "Hold",
+                "units":            "secs",
+                "default":          0,
+                "decimalPlaces":    0,
+                "min":              0,
+                "userMin":          0,
+                "userMax":          600,
+                "advanced":         true
+            },
+            "param2": {
+                "label":            "Acceptance",
+                "units":            "m",
+                "default":          0,
+                "decimalPlaces":    2,
+                "min":              0,
+                "advanced":         true
+            },
+            "param3": {
+                "label":            "Pass Radius",
+                "units":            "m",
+                "default":          0,
+                "decimalPlaces":    2,
+                "advanced":         true
+            },
+            "param4": {
+                "label":            "Yaw",
+                "units":            "deg",
+                "nanUnchanged":     true,
+                "default":          null,
+                "decimalPlaces":    1,
+                "userMin":          -180,
+                "userMax":          180,
+                "advanced":         true
+            }
+        },
+        {
             "id":                   17,
             "rawName":              "MAV_CMD_NAV_LOITER_UNLIM",
             "friendlyName":         "Loiter",
@@ -1304,6 +1348,57 @@
                 "enumValues":       "0,1",
                 "default":          1,
                 "decimalPlaces":    0
+            }
+        },
+        {
+            "id":           42711,
+            "rawName":      "MAV_CMD_DO_SPRAY_SETTINGS",
+            "friendlyName": "Spray settings marker",
+            "description":  "SkyFarmer spray settings and metadata marker command.",
+            "category":     "Advanced",
+            "param1": {
+                "label":            "Script type",
+                "default":          20,
+                "decimalPlaces":    0,
+                "advanced":         true
+            },
+            "param2": {
+                "label":            "Payload",
+                "default":          0,
+                "decimalPlaces":    3,
+                "advanced":         true
+            },
+            "param3": {
+                "label":            "Mode",
+                "enumStrings":      "Restart,Resume",
+                "enumValues":       "0,1",
+                "default":          0,
+                "decimalPlaces":    0,
+                "advanced":         true
+            },
+            "param4": {
+                "label":            "Param4",
+                "default":          0,
+                "decimalPlaces":    3,
+                "advanced":         true
+            },
+            "param5": {
+                "label":            "Param5",
+                "default":          0,
+                "decimalPlaces":    7,
+                "advanced":         true
+            },
+            "param6": {
+                "label":            "Param6",
+                "default":          0,
+                "decimalPlaces":    7,
+                "advanced":         true
+            },
+            "param7": {
+                "label":            "Param7",
+                "default":          0,
+                "decimalPlaces":    2,
+                "advanced":         true
             }
         },
         { "id": 30001, "rawName": "MAV_CMD_PAYLOAD_PREPARE_DEPLOY", "friendlyName": "Payload prepare deploy" },

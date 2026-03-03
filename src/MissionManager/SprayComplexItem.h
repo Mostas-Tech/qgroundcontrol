@@ -14,8 +14,6 @@ class SprayComplexItem : public AgriculturalStyleComplexItem
     static const QString name;                           // defined in .cc
     /// V2 JSON complex item type tag
     static constexpr const char* jsonComplexItemTypeValue = "spray";
-    /// Upload mode marker used during regeneration: 0 = restart/start, 1 = resume
-    static constexpr const char* jsonScriptTimeInfoModeKey = "scriptTimeInfoMode";
 
             /// @param flyView true: Fly View, false: Plan View
     SprayComplexItem(PlanMasterController* masterController, bool flyView);
@@ -38,8 +36,10 @@ class SprayComplexItem : public AgriculturalStyleComplexItem
 protected:
     MissionItem* _createScriptTimeItem(int sequenceNumber, int action, MAV_FRAME frame,
                                        QObject* missionItemParent) const override;
-    int _scriptTimeItemCountForMission() const override { return 3; }
+        int _scriptTimeItemCountForMission() const override { return 1; }
+        MAV_CMD _exitWaypointCommand() const override;
 
 private:
-    double _scriptTimeInfoMode = 0.0;
+        double _scriptTimeInfoMode = 0.0;
+        static constexpr const char* _jsonScriptTimeInfoModeKey = "scriptTimeInfoMode";
 };

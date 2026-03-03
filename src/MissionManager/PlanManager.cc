@@ -9,8 +9,9 @@
 QGC_LOGGING_CATEGORY(PlanManagerLog, "PlanManager.PlanManager")
 
 namespace {
-// Hardcoded mission protocol target component for companion-computer uploads.
-constexpr uint8_t kMissionTargetComponentId = MAV_COMP_ID_ONBOARD_COMPUTER;
+// Route mission writes to companion, while mission reads query the flight controller.
+constexpr uint8_t kMissionWriteTargetComponentId = MAV_COMP_ID_ONBOARD_COMPUTER;
+constexpr uint8_t kMissionReadTargetComponentId = MAV_COMP_ID_AUTOPILOT1;
 
 void logMissionMessageRouting(const char *messageName, int sourceSystemId, int sourceComponentId, int targetSystemId, int targetComponentId, MAV_MISSION_TYPE planType)
 {
@@ -116,7 +117,7 @@ void PlanManager::_writeMissionCount(void)
         const int sourceSystemId = MAVLinkProtocol::instance()->getSystemId();
         const int sourceComponentId = MAVLinkProtocol::getComponentId();
         const int targetSystemId = _vehicle->id();
-        const int targetComponentId = kMissionTargetComponentId;
+        const int targetComponentId = kMissionWriteTargetComponentId;
         mavlink_message_t       message;
 
         mavlink_msg_mission_count_pack_chan(
@@ -169,7 +170,7 @@ void PlanManager::_requestList(void)
         const int sourceSystemId = MAVLinkProtocol::instance()->getSystemId();
         const int sourceComponentId = MAVLinkProtocol::getComponentId();
         const int targetSystemId = _vehicle->id();
-        const int targetComponentId = kMissionTargetComponentId;
+        const int targetComponentId = kMissionReadTargetComponentId;
         mavlink_message_t       message;
         mavlink_msg_mission_request_list_pack_chan(sourceSystemId,
                                                    sourceComponentId,
@@ -322,7 +323,7 @@ void PlanManager::_readTransactionComplete(void)
         const int sourceSystemId = MAVLinkProtocol::instance()->getSystemId();
         const int sourceComponentId = MAVLinkProtocol::getComponentId();
         const int targetSystemId = _vehicle->id();
-        const int targetComponentId = kMissionTargetComponentId;
+        const int targetComponentId = kMissionReadTargetComponentId;
         mavlink_message_t       message;
 
         mavlink_msg_mission_ack_pack_chan(
@@ -391,7 +392,7 @@ void PlanManager::_requestNextMissionItem(void)
         const int sourceSystemId = MAVLinkProtocol::instance()->getSystemId();
         const int sourceComponentId = MAVLinkProtocol::getComponentId();
         const int targetSystemId = _vehicle->id();
-        const int targetComponentId = kMissionTargetComponentId;
+        const int targetComponentId = kMissionReadTargetComponentId;
         mavlink_message_t       message;
 
         mavlink_msg_mission_request_int_pack_chan(sourceSystemId,
@@ -565,7 +566,7 @@ void PlanManager::_handleMissionRequest(const mavlink_message_t& message)
         const int sourceSystemId = MAVLinkProtocol::instance()->getSystemId();
         const int sourceComponentId = MAVLinkProtocol::getComponentId();
         const int targetSystemId = _vehicle->id();
-        const int targetComponentId = kMissionTargetComponentId;
+        const int targetComponentId = kMissionWriteTargetComponentId;
         mavlink_message_t       messageOut;
 
         mavlink_msg_mission_item_int_pack_chan(sourceSystemId,
@@ -920,7 +921,7 @@ void PlanManager::_removeAllWorker(void)
         const int sourceSystemId = MAVLinkProtocol::instance()->getSystemId();
         const int sourceComponentId = MAVLinkProtocol::getComponentId();
         const int targetSystemId = _vehicle->id();
-        const int targetComponentId = kMissionTargetComponentId;
+        const int targetComponentId = kMissionWriteTargetComponentId;
         mavlink_message_t       message;
 
         mavlink_msg_mission_clear_all_pack_chan(sourceSystemId,

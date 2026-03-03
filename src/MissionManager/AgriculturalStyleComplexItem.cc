@@ -632,7 +632,7 @@ bool AgriculturalStyleComplexItem::_shouldUseLoadedMissionItems() const
 }
 
 // Build a simple WP at coordinate with altitude from vehicle default (no terrain mode yet)
-void AgriculturalStyleComplexItem::_appendWaypoint(QList<MissionItem*>& items, QObject* missionItemParent, int& seqNum, MAV_FRAME mavFrame, float holdTime, const QGeoCoordinate& coordinate) {
+void AgriculturalStyleComplexItem::_appendWaypoint(QList<MissionItem*>& items, QObject* missionItemParent, int& seqNum, MAV_FRAME mavFrame, float holdTime, const QGeoCoordinate& coordinate, MAV_CMD command) {
     // Interpret coordinate.altitude() as a height above takeoff (relative). If unset, fall back
     // to the Takeoff mission item's altitude (relative). If that is missing, use 5 m.
     double altitude = std::numeric_limits<double>::quiet_NaN();
@@ -659,7 +659,7 @@ void AgriculturalStyleComplexItem::_appendWaypoint(QList<MissionItem*>& items, Q
     }
 
     MissionItem* item = new MissionItem(seqNum++,
-                                        MAV_CMD_NAV_WAYPOINT,
+                                        command,
                                         mavFrame,
                                         holdTime,
                                         0.0, // acceptance radius
@@ -1106,6 +1106,7 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
         for (int i = 0; i < _geoFenceCircles->count(); ++i) {
             auto* fenceCircle = _geoFenceCircles->value<QGCFenceCircle*>(i);
             if (!fenceCircle) continue;
+            if (fenceCircle->inclusion()) continue;
 
             const QGeoCoordinate center = fenceCircle->center();
             const QPointF nedCenter = geoToNedXY(center, _refForNed);
@@ -1126,6 +1127,7 @@ void AgriculturalStyleComplexItem::_rebuildTransects() {
         for (int i = 0; i < _geoFencePolygons->count(); ++i) {
             auto* fp = _geoFencePolygons->value<QGCFencePolygon*>(i);
             if (!fp) continue;
+            if (fp->inclusion()) continue;
 
             QPolygonF nedPoly = fencePolygonToNed(fp, _refForNed);
             // Expand fence polygon by padding so exclusion zones include padding
@@ -1719,16 +1721,9 @@ void AgriculturalStyleComplexItem::_buildAndAppendMissionItems(QList<MissionItem
     }
 
     if (firstValidLeg) {
-        // Optional mission metadata marker: derived classes can encode run mode/state here.
-        if (MissionItem* infoScript = _createScriptTimeItem(seqNum, ScriptTimeActionInfo, MAV_FRAME_MISSION, missionItemParent)) {
-            infoScript->setSequenceNumber(seqNum++);
-            items.append(infoScript);
-        }
-
-        // Mission-level spray start command: one command before entering first productive leg.
-        if (MissionItem* startScript = _createScriptTimeItem(seqNum, ScriptTimeActionStart, MAV_FRAME_MISSION, missionItemParent)) {
-            startScript->setSequenceNumber(seqNum++);
-            items.append(startScript);
+        if (MissionItem* settingsItem = _createScriptTimeItem(seqNum, ScriptTimeActionStart, MAV_FRAME_MISSION, missionItemParent)) {
+            settingsItem->setSequenceNumber(seqNum++);
+            items.append(settingsItem);
         }
     }
 
@@ -1739,16 +1734,9 @@ void AgriculturalStyleComplexItem::_buildAndAppendMissionItems(QList<MissionItem
         _appendWaypoint(items, missionItemParent, seqNum, frame, 0 /*hold*/, leg.first().coord);
 
         // Exit WP
-        _appendWaypoint(items, missionItemParent, seqNum, frame, 0 /*hold*/, leg.last().coord);
+        _appendWaypoint(items, missionItemParent, seqNum, frame, 0 /*hold*/, leg.last().coord, _exitWaypointCommand());
     }
 
-    if (hasValidLeg) {
-        // Mission-level spray stop command: one command after the last productive leg.
-        if (MissionItem* stopScript = _createScriptTimeItem(seqNum, ScriptTimeActionStop, MAV_FRAME_MISSION, missionItemParent)) {
-            stopScript->setSequenceNumber(seqNum++);
-            items.append(stopScript);
-        }
-    }
 }
 
 double AgriculturalStyleComplexItem::amslEntryAlt(void) const {

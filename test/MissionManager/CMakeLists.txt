@@ -22,6 +22,7 @@ target_sources(${CMAKE_PROJECT_NAME}
         QGCMapPolylineTest.cc QGCMapPolylineTest.h
         SectionTest.cc SectionTest.h
         SimpleMissionItemTest.cc SimpleMissionItemTest.h
+        SprayComplexItemTest.cc SprayComplexItemTest.h
         SpeedSectionTest.cc SpeedSectionTest.h
         StructureScanComplexItemTest.cc StructureScanComplexItemTest.h
         SurveyComplexItemTest.cc SurveyComplexItemTest.h

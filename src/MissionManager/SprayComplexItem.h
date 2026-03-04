@@ -36,10 +36,18 @@ class SprayComplexItem : public AgriculturalStyleComplexItem
 protected:
     MissionItem* _createScriptTimeItem(int sequenceNumber, int action, MAV_FRAME frame,
                                        QObject* missionItemParent) const override;
-        int _scriptTimeItemCountForMission() const override { return 1; }
-        MAV_CMD _exitWaypointCommand() const override;
+    void _appendPostEntryMissionItems(QList<MissionItem*>& items,
+                                      QObject* missionItemParent,
+                                      int& seqNum,
+                                      MAV_FRAME frame,
+                                      const QList<AgriculturalStyleComplexItem::CoordInfo_t>& leg) override;
+    int _additionalPerLegItemCount() const override { return _entryYawAlignmentEnabled ? 2 : 0; }
+    int _scriptTimeItemCountForMission() const override { return 1; }
+    MAV_CMD _exitWaypointCommand() const override;
 
 private:
-        double _scriptTimeInfoMode = 0.0;
-        static constexpr const char* _jsonScriptTimeInfoModeKey = "scriptTimeInfoMode";
+    bool _entryYawAlignmentEnabled = true;
+    double _scriptTimeInfoMode = 0.0;
+    static constexpr const char* _jsonScriptTimeInfoModeKey = "scriptTimeInfoMode";
+    static constexpr const char* _jsonEntryYawAlignmentEnabledKey = "entryYawAlignmentEnabled";
 };

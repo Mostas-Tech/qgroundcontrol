@@ -228,6 +228,12 @@ protected:
     bool _shouldUseLoadedMissionItems() const;
     virtual MissionItem* _createScriptTimeItem(int sequenceNumber, int action, MAV_FRAME frame,
                                                QObject* missionItemParent) const;
+    virtual void _appendPostEntryMissionItems(QList<MissionItem*>& items,
+                                              QObject* missionItemParent,
+                                              int& seqNum,
+                                              MAV_FRAME frame,
+                                              const QList<CoordInfo_t>& leg);
+    virtual int _additionalPerLegItemCount() const { return 0; }
     virtual int _scriptTimeItemCountForMission() const { return 0; }
     virtual MAV_CMD _exitWaypointCommand() const { return MAV_CMD_NAV_WAYPOINT; }
 

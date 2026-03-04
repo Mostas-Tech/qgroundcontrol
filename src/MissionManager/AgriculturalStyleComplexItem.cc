@@ -1375,7 +1375,7 @@ int AgriculturalStyleComplexItem::lastSequenceNumber(void) const {
             continue;
         }
         ++validLegCount;
-        itemCount += 2; // entry + exit waypoints per leg
+        itemCount += 2 + _additionalPerLegItemCount(); // entry + optional injected + exit waypoints per leg
     }
 
     if (validLegCount > 0) {
@@ -1675,6 +1675,19 @@ MissionItem* AgriculturalStyleComplexItem::_createScriptTimeItem(int sequenceNum
     return nullptr; // base class has no script-time injection; derived classes may override
 }
 
+void AgriculturalStyleComplexItem::_appendPostEntryMissionItems(QList<MissionItem*>& items,
+                                                                QObject* missionItemParent,
+                                                                int& seqNum,
+                                                                MAV_FRAME frame,
+                                                                const QList<CoordInfo_t>& leg)
+{
+    Q_UNUSED(items);
+    Q_UNUSED(missionItemParent);
+    Q_UNUSED(seqNum);
+    Q_UNUSED(frame);
+    Q_UNUSED(leg);
+}
+
 void AgriculturalStyleComplexItem::_buildAndAppendMissionItems(QList<MissionItem*>& items, QObject* missionItemParent) {
     int seqNum = _sequenceNumber;
 
@@ -1708,7 +1721,6 @@ void AgriculturalStyleComplexItem::_buildAndAppendMissionItems(QList<MissionItem
 
     const MAV_FRAME frame = MAV_FRAME_GLOBAL_RELATIVE_ALT;
     const QList<CoordInfo_t>* firstValidLeg = nullptr;
-    bool hasValidLeg = false;
 
     for (const QList<CoordInfo_t>& leg : _transects) {
         if (leg.size() < 2) {
@@ -1717,7 +1729,6 @@ void AgriculturalStyleComplexItem::_buildAndAppendMissionItems(QList<MissionItem
         if (!firstValidLeg) {
             firstValidLeg = &leg;
         }
-        hasValidLeg = true;
     }
 
     if (firstValidLeg) {
@@ -1732,6 +1743,9 @@ void AgriculturalStyleComplexItem::_buildAndAppendMissionItems(QList<MissionItem
 
         // Entry WP
         _appendWaypoint(items, missionItemParent, seqNum, frame, 0 /*hold*/, leg.first().coord);
+
+        // Optional injected items (derived classes can add per-leg actions after entry)
+        _appendPostEntryMissionItems(items, missionItemParent, seqNum, frame, leg);
 
         // Exit WP
         _appendWaypoint(items, missionItemParent, seqNum, frame, 0 /*hold*/, leg.last().coord, _exitWaypointCommand());

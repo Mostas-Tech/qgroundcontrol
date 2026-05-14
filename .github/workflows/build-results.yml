@@ -34,7 +34,7 @@ jobs:
 
       - name: Get PR number
         id: pr
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const run = context.payload.workflow_run;
@@ -54,7 +54,7 @@ jobs:
       - name: Collect build status
         if: steps.pr.outputs.result != 'null'
         id: builds
-        uses: actions/github-script@v8
+        uses: actions/github-script@v9
         with:
           script: |
             const headSha = context.payload.workflow_run.head_sha;
@@ -171,7 +171,7 @@ jobs:
       - name: Download pre-commit results artifact
         if: steps.pr.outputs.result != 'null' && steps.builds.outputs.precommit_run_id != ''
         continue-on-error: true
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           run-id: ${{ steps.builds.outputs.precommit_run_id }}
           github-token: ${{ secrets.GITHUB_TOKEN }}
